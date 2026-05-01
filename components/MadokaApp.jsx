@@ -141,7 +141,7 @@ export default function App() {
     return null;
   }
 
-  // Reload from Supabase
+  // Reload from shared storage
   var reload = useCallback(async function () {
     if (savingRef.current) return;
     try {
@@ -164,6 +164,7 @@ export default function App() {
         if (ok && row && row.value) {
           var p = parseStored(JSON.stringify(row.value));
           if (p) setData(p);
+          }
         }
       } catch (e) { /* ignore */ }
       if (ok) setReady(true);
@@ -879,16 +880,45 @@ function PlanItem(p) {
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [sec, setSec] = useState(0);
-  var ref = useRef(null);
+  const [display, setDisplay] = useState(0);
+  var startRef = useRef(null);
+  var baseRef = useRef(0);
+  var rafRef = useRef(null);
+
+  var tick = useCallback(function () {
+    if (startRef.current) {
+      var elapsed = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
+      setDisplay(elapsed);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }, []);
 
   useEffect(function () {
     if (running) {
-      ref.current = setInterval(function () { setSec(function (s) { return s + 1; }); }, 1000);
-    } else if (ref.current) {
-      clearInterval(ref.current);
+      startRef.current = Date.now();
+      rafRef.current = requestAnimationFrame(tick);
+    } else {
+      if (startRef.current) {
+        baseRef.current = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
+        startRef.current = null;
+      }
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     }
-    return function () { if (ref.current) clearInterval(ref.current); };
-  }, [running]);
+    return function () { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [running, tick]);
+
+  // Also update on visibility change (returning from sleep)
+  useEffect(function () {
+    function onVis() {
+      if (document.visibilityState === "visible" && startRef.current) {
+        setDisplay(baseRef.current + Math.floor((Date.now() - startRef.current) / 1000));
+      }
+    }
+    document.addEventListener("visibilitychange", onVis);
+    return function () { document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+
+  var currentSec = running ? display : baseRef.current;
 
   var handleStart = function () { setRunning(true); setPaused(false); };
   var handlePause = function () { setRunning(false); setPaused(true); };
@@ -896,27 +926,35 @@ function PlanItem(p) {
 
   var handleComplete = function () {
     setRunning(false); setPaused(false);
-    var itemWithTime = Object.assign({}, item, { _elapsed: sec });
+    var elapsed = baseRef.current;
+    if (startRef.current) elapsed += Math.floor((Date.now() - startRef.current) / 1000);
+    var itemWithTime = Object.assign({}, item, { _elapsed: elapsed });
     checkPlanItem(itemWithTime);
+    baseRef.current = 0; startRef.current = null; setDisplay(0);
   };
 
   var handlePartial = function () {
     setRunning(false); setPaused(false);
-    var itemWithTime = Object.assign({}, item, { _elapsed: sec, _partial: true });
+    var elapsed = baseRef.current;
+    if (startRef.current) elapsed += Math.floor((Date.now() - startRef.current) / 1000);
+    var itemWithTime = Object.assign({}, item, { _elapsed: elapsed, _partial: true });
     checkPlanItem(itemWithTime);
+    baseRef.current = 0; startRef.current = null; setDisplay(0);
   };
 
   var handleQuit = function () {
     setRunning(false); setPaused(false);
+    var elapsed = baseRef.current;
+    if (startRef.current) elapsed += Math.floor((Date.now() - startRef.current) / 1000);
     // Record time but don't complete — just save study log
-    if (sec > 10) {
+    if (elapsed > 10) {
       var d = clone(data);
       if (!d.studyLogs) d.studyLogs = {};
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: sec, title: item.label + "（中断）" });
+      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: elapsed, title: item.label + "（中断）" });
       save(d);
     }
-    setSec(0);
+    baseRef.current = 0; startRef.current = null; setDisplay(0);
   };
 
   var hasPages = item.action === "pages" || item.action === "pit_pages";
@@ -945,7 +983,7 @@ function PlanItem(p) {
       {started && (
         <div style={{ marginTop: 8, padding: 12, background: running ? ch.color + "08" : "#f5f5f5", borderRadius: 10, border: running ? "2px solid " + ch.color + "25" : "2px solid #e0e0e0", textAlign: "center" }}>
           <div style={{ fontSize: 11, color: "#888" }}>{running ? "⏱️ 学習中..." : "⏸ 一時停止中"}</div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: running ? ch.color : "#999", fontVariantNumeric: "tabular-nums", margin: "4px 0" }}>{ft(sec)}</div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: running ? ch.color : "#999", fontVariantNumeric: "tabular-nums", margin: "4px 0" }}>{ft(currentSec)}</div>
           <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
             {running ? (
               <button onClick={handlePause} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "#FF9800", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
@@ -978,43 +1016,76 @@ function PlanItem(p) {
 function Timer(p) {
   var ch = p.ch, data = p.data, save = p.save, task = p.task;
   const [on, setOn] = useState(false);
-  const [sec, setSec] = useState(0);
+  const [display, setDisplay] = useState(0);
   const [saved, setSaved] = useState(false);
-  var ref = useRef(null);
+  var startRef = useRef(null);
+  var baseRef = useRef(0);
+  var rafRef = useRef(null);
+
+  var tick = useCallback(function () {
+    if (startRef.current) {
+      var elapsed = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
+      setDisplay(elapsed);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }, []);
 
   useEffect(function () {
     if (on) {
-      ref.current = setInterval(function () { setSec(function (s) { return s + 1; }); }, 1000);
-    } else if (ref.current) {
-      clearInterval(ref.current);
+      startRef.current = Date.now();
+      rafRef.current = requestAnimationFrame(tick);
+    } else {
+      if (startRef.current) {
+        baseRef.current = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
+        startRef.current = null;
+      }
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     }
-    return function () { if (ref.current) clearInterval(ref.current); };
-  }, [on]);
+    return function () { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [on, tick]);
+
+  useEffect(function () {
+    function onVis() {
+      if (document.visibilityState === "visible" && startRef.current) {
+        setDisplay(baseRef.current + Math.floor((Date.now() - startRef.current) / 1000));
+      }
+    }
+    document.addEventListener("visibilitychange", onVis);
+    return function () { document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+
+  var currentSec = on ? display : baseRef.current;
 
   var stop = function () {
     setOn(false);
-    if (sec > 10) {
+    var elapsed = baseRef.current;
+    if (startRef.current) elapsed += Math.floor((Date.now() - startRef.current) / 1000);
+    if (elapsed > 10) {
       var d = clone(data);
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: sec, title: task ? task.title : "自由学習" });
+      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: elapsed, title: task ? task.title : "自由学習" });
       save(d);
       setSaved(true);
       setTimeout(function () { setSaved(false); }, 2000);
     }
   };
 
+  var resetTimer = function () {
+    baseRef.current = 0; startRef.current = null; setDisplay(0);
+  };
+
   return (
     <div style={{ background: on ? ch.color + "10" : "#f9f9f9", borderRadius: 12, padding: 10, marginTop: 6, textAlign: "center" }}>
       <div style={{ fontSize: 10, color: "#888" }}>⏱️ タイマー</div>
-      <div style={{ fontSize: 30, fontWeight: 900, color: on ? ch.color : "#333", fontVariantNumeric: "tabular-nums" }}>{ft(sec)}</div>
+      <div style={{ fontSize: 30, fontWeight: 900, color: on ? ch.color : "#333", fontVariantNumeric: "tabular-nums" }}>{ft(currentSec)}</div>
       <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 4 }}>
         {!on
           ? <button onClick={function () { setOn(true); setSaved(false); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>▶ スタート</button>
           : <button onClick={stop} style={{ ...S.smBtn, background: "#E53935", color: "#fff" }}>⏸ ストップ</button>
         }
-        {sec > 0 && !on && <button onClick={function () { setSec(0); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>リセット</button>}
+        {currentSec > 0 && !on && <button onClick={resetTimer} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>リセット</button>}
       </div>
-      {saved && <div style={{ marginTop: 4, fontSize: 11, color: "#4CAF50", fontWeight: 700 }}>✅ {Math.floor(sec / 60)}分{sec % 60}秒を記録！</div>}
+      {saved && <div style={{ marginTop: 4, fontSize: 11, color: "#4CAF50", fontWeight: 700 }}>✅ {Math.floor(currentSec / 60)}分{currentSec % 60}秒を記録！</div>}
     </div>
   );
 }
