@@ -141,7 +141,7 @@ export default function App() {
     return null;
   }
 
-  // Reload from shared storage
+  // Reload from Supabase
   var reload = useCallback(async function () {
     if (savingRef.current) return;
     try {
@@ -164,7 +164,6 @@ export default function App() {
         if (ok && row && row.value) {
           var p = parseStored(JSON.stringify(row.value));
           if (p) setData(p);
-          }
         }
       } catch (e) { /* ignore */ }
       if (ok) setReady(true);
@@ -879,74 +878,70 @@ function PlanItem(p) {
   var item = p.item, ch = p.ch, data = p.data, save = p.save, checkPlanItem = p.checkPlanItem;
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [sec, setSec] = useState(0);
   const [display, setDisplay] = useState(0);
-  var startRef = useRef(null);
-  var baseRef = useRef(0);
-  var rafRef = useRef(null);
+  var startRef = useRef(null);  // Date.now() when current run started
+  var baseRef = useRef(0);      // accumulated seconds from previous runs
+  var ivRef = useRef(null);
 
-  var tick = useCallback(function () {
-    if (startRef.current) {
-      var elapsed = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
-      setDisplay(elapsed);
-    }
-    rafRef.current = requestAnimationFrame(tick);
-  }, []);
+  var calcElapsed = function () {
+    return baseRef.current + (startRef.current ? Math.floor((Date.now() - startRef.current) / 1000) : 0);
+  };
 
   useEffect(function () {
     if (running) {
       startRef.current = Date.now();
-      rafRef.current = requestAnimationFrame(tick);
+      setDisplay(calcElapsed());
+      ivRef.current = setInterval(function () { setDisplay(calcElapsed()); }, 1000);
     } else {
       if (startRef.current) {
         baseRef.current = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
         startRef.current = null;
       }
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (ivRef.current) { clearInterval(ivRef.current); ivRef.current = null; }
+      setDisplay(baseRef.current);
     }
-    return function () { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [running, tick]);
+    return function () { if (ivRef.current) { clearInterval(ivRef.current); ivRef.current = null; } };
+  }, [running]);
 
-  // Also update on visibility change (returning from sleep)
+  // On visibility change (returning from sleep/background), recalculate
   useEffect(function () {
     function onVis() {
       if (document.visibilityState === "visible" && startRef.current) {
-        setDisplay(baseRef.current + Math.floor((Date.now() - startRef.current) / 1000));
+        setDisplay(calcElapsed());
+        // Restart interval since it may have been throttled
+        if (ivRef.current) clearInterval(ivRef.current);
+        ivRef.current = setInterval(function () { setDisplay(calcElapsed()); }, 1000);
       }
     }
     document.addEventListener("visibilitychange", onVis);
     return function () { document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
-  var currentSec = running ? display : baseRef.current;
-
   var handleStart = function () { setRunning(true); setPaused(false); };
   var handlePause = function () { setRunning(false); setPaused(true); };
   var handleResume = function () { setRunning(true); setPaused(false); };
 
   var handleComplete = function () {
+    var elapsed = calcElapsed();
     setRunning(false); setPaused(false);
-    var elapsed = baseRef.current;
-    if (startRef.current) elapsed += Math.floor((Date.now() - startRef.current) / 1000);
+    baseRef.current = 0; startRef.current = null;
     var itemWithTime = Object.assign({}, item, { _elapsed: elapsed });
     checkPlanItem(itemWithTime);
-    baseRef.current = 0; startRef.current = null; setDisplay(0);
+    setDisplay(0);
   };
 
   var handlePartial = function () {
+    var elapsed = calcElapsed();
     setRunning(false); setPaused(false);
-    var elapsed = baseRef.current;
-    if (startRef.current) elapsed += Math.floor((Date.now() - startRef.current) / 1000);
+    baseRef.current = 0; startRef.current = null;
     var itemWithTime = Object.assign({}, item, { _elapsed: elapsed, _partial: true });
     checkPlanItem(itemWithTime);
-    baseRef.current = 0; startRef.current = null; setDisplay(0);
+    setDisplay(0);
   };
 
   var handleQuit = function () {
+    var elapsed = calcElapsed();
     setRunning(false); setPaused(false);
-    var elapsed = baseRef.current;
-    if (startRef.current) elapsed += Math.floor((Date.now() - startRef.current) / 1000);
-    // Record time but don't complete — just save study log
     if (elapsed > 10) {
       var d = clone(data);
       if (!d.studyLogs) d.studyLogs = {};
@@ -954,7 +949,8 @@ function PlanItem(p) {
       d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: elapsed, title: item.label + "（中断）" });
       save(d);
     }
-    baseRef.current = 0; startRef.current = null; setDisplay(0);
+    baseRef.current = 0; startRef.current = null;
+    setDisplay(0);
   };
 
   var hasPages = item.action === "pages" || item.action === "pit_pages";
@@ -983,7 +979,7 @@ function PlanItem(p) {
       {started && (
         <div style={{ marginTop: 8, padding: 12, background: running ? ch.color + "08" : "#f5f5f5", borderRadius: 10, border: running ? "2px solid " + ch.color + "25" : "2px solid #e0e0e0", textAlign: "center" }}>
           <div style={{ fontSize: 11, color: "#888" }}>{running ? "⏱️ 学習中..." : "⏸ 一時停止中"}</div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: running ? ch.color : "#999", fontVariantNumeric: "tabular-nums", margin: "4px 0" }}>{ft(currentSec)}</div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: running ? ch.color : "#999", fontVariantNumeric: "tabular-nums", margin: "4px 0" }}>{ft(display)}</div>
           <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
             {running ? (
               <button onClick={handlePause} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "#FF9800", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
@@ -1020,46 +1016,43 @@ function Timer(p) {
   const [saved, setSaved] = useState(false);
   var startRef = useRef(null);
   var baseRef = useRef(0);
-  var rafRef = useRef(null);
+  var ivRef = useRef(null);
 
-  var tick = useCallback(function () {
-    if (startRef.current) {
-      var elapsed = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
-      setDisplay(elapsed);
-    }
-    rafRef.current = requestAnimationFrame(tick);
-  }, []);
+  var calcElapsed = function () {
+    return baseRef.current + (startRef.current ? Math.floor((Date.now() - startRef.current) / 1000) : 0);
+  };
 
   useEffect(function () {
     if (on) {
       startRef.current = Date.now();
-      rafRef.current = requestAnimationFrame(tick);
+      setDisplay(calcElapsed());
+      ivRef.current = setInterval(function () { setDisplay(calcElapsed()); }, 1000);
     } else {
       if (startRef.current) {
         baseRef.current = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
         startRef.current = null;
       }
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (ivRef.current) { clearInterval(ivRef.current); ivRef.current = null; }
+      setDisplay(baseRef.current);
     }
-    return function () { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [on, tick]);
+    return function () { if (ivRef.current) { clearInterval(ivRef.current); ivRef.current = null; } };
+  }, [on]);
 
   useEffect(function () {
     function onVis() {
       if (document.visibilityState === "visible" && startRef.current) {
-        setDisplay(baseRef.current + Math.floor((Date.now() - startRef.current) / 1000));
+        setDisplay(calcElapsed());
+        if (ivRef.current) clearInterval(ivRef.current);
+        ivRef.current = setInterval(function () { setDisplay(calcElapsed()); }, 1000);
       }
     }
     document.addEventListener("visibilitychange", onVis);
     return function () { document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
-  var currentSec = on ? display : baseRef.current;
-
   var stop = function () {
+    var elapsed = calcElapsed();
     setOn(false);
-    var elapsed = baseRef.current;
-    if (startRef.current) elapsed += Math.floor((Date.now() - startRef.current) / 1000);
     if (elapsed > 10) {
       var d = clone(data);
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
@@ -1077,15 +1070,15 @@ function Timer(p) {
   return (
     <div style={{ background: on ? ch.color + "10" : "#f9f9f9", borderRadius: 12, padding: 10, marginTop: 6, textAlign: "center" }}>
       <div style={{ fontSize: 10, color: "#888" }}>⏱️ タイマー</div>
-      <div style={{ fontSize: 30, fontWeight: 900, color: on ? ch.color : "#333", fontVariantNumeric: "tabular-nums" }}>{ft(currentSec)}</div>
+      <div style={{ fontSize: 30, fontWeight: 900, color: on ? ch.color : "#333", fontVariantNumeric: "tabular-nums" }}>{ft(display)}</div>
       <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 4 }}>
         {!on
           ? <button onClick={function () { setOn(true); setSaved(false); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>▶ スタート</button>
           : <button onClick={stop} style={{ ...S.smBtn, background: "#E53935", color: "#fff" }}>⏸ ストップ</button>
         }
-        {currentSec > 0 && !on && <button onClick={resetTimer} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>リセット</button>}
+        {display > 0 && !on && <button onClick={resetTimer} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>リセット</button>}
       </div>
-      {saved && <div style={{ marginTop: 4, fontSize: 11, color: "#4CAF50", fontWeight: 700 }}>✅ {Math.floor(currentSec / 60)}分{currentSec % 60}秒を記録！</div>}
+      {saved && <div style={{ marginTop: 4, fontSize: 11, color: "#4CAF50", fontWeight: 700 }}>✅ {Math.floor(display / 60)}分{display % 60}秒を記録！</div>}
     </div>
   );
 }
