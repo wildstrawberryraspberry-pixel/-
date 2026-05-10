@@ -1320,6 +1320,7 @@ function WorkbooksTab(p) {
   const [chalSubj, setChalSubj] = useState(ch.subjects[0]);
   const [chalUnits, setChalUnits] = useState("5");
   const [chalMin, setChalMin] = useState("15");
+  const [chalHasTest, setChalHasTest] = useState(true);
   const [pageName, setPageName] = useState("");
   const [pageSubj, setPageSubj] = useState(ch.subjects[0]);
   const [pageTotal, setPageTotal] = useState("");
@@ -1377,9 +1378,9 @@ function WorkbooksTab(p) {
     if (!chalName.trim()) return;
     var d = clone(data);
     if (!d.workbooks[ch.id]) d.workbooks[ch.id] = [];
-    d.workbooks[ch.id].push({ id: "wb_c" + Date.now(), name: chalName.trim(), subject: chalSubj, type: "challenge", totalUnits: parseInt(chalUnits) || 5, doneUnits: 0, hasTest: true, testDone: false, minPerUnit: parseInt(chalMin) || 15, priority: "high", monthly: true });
+    d.workbooks[ch.id].push({ id: "wb_c" + Date.now(), name: chalName.trim(), subject: chalSubj, type: "challenge", totalUnits: parseInt(chalUnits) || 5, doneUnits: 0, hasTest: chalHasTest, testDone: false, minPerUnit: parseInt(chalMin) || 15, priority: "high", monthly: true });
     save(d);
-    setChalName(""); setChalUnits("5"); setChalMin("15"); setShowAddChal(false);
+    setChalName(""); setChalUnits("5"); setChalMin("15"); setChalHasTest(true); setShowAddChal(false);
   };
 
   var addPageBook = function () {
@@ -1415,6 +1416,10 @@ function WorkbooksTab(p) {
               <select value={chalSubj} onChange={function (e) { setChalSubj(e.target.value); }} style={{ ...S.input, flex: 1 }}>{ch.subjects.map(function (s) { return <option key={s} value={s}>{s}</option>; })}</select>
               <input type="number" value={chalUnits} onChange={function (e) { setChalUnits(e.target.value); }} placeholder="回数" style={{ ...S.input, width: 50, flex: "none" }} />
               <input type="number" value={chalMin} onChange={function (e) { setChalMin(e.target.value); }} placeholder="分/回" style={{ ...S.input, width: 50, flex: "none" }} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#666" }}>テストあり</span>
+              <button onClick={function () { setChalHasTest(!chalHasTest); }} style={{ ...S.smBtn, background: chalHasTest ? ch.color : "#e0e0e0", color: chalHasTest ? "#fff" : "#999", minWidth: 50 }}>{chalHasTest ? "ON" : "OFF"}</button>
             </div>
             <button onClick={addChallenge} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%", marginTop: 6, padding: 8 }}>追加</button>
           </div>
