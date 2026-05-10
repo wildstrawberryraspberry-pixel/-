@@ -141,16 +141,14 @@ export default function App() {
     return null;
   }
 
-  // Reload from Supabase
+  // Reload from shared storage
   var reload = useCallback(async function () {
     if (savingRef.current) return;
     try {
       var { data: row } = await supabase.from("app_data").select("value").eq("key", SK).single();
       if (row && row.value) {
         var p = parseStored(JSON.stringify(row.value));
-        if (p && JSON.stringify(p) !== JSON.stringify(dataRef.current)) {
-          setData(p);
-        }
+        if (p && JSON.stringify(p) !== JSON.stringify(dataRef.current)) { setData(p); }
       }
     } catch (e) { /* ignore */ }
   }, []);
@@ -318,20 +316,20 @@ function MainView(p) {
 }
 
 
+function pageLabel(wb, numPages) {
+  var start = (wb.donePages || 0) + 1;
+  var end = Math.min(start + numPages - 1, wb.totalPages);
+  if (start > wb.totalPages) return "完了";
+  if (start === end) return "P" + start;
+  return "P" + start + "-P" + end;
+}
+
 function buildTodayPlan(ch, data) {
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD]) || {};
   var carryover = (data.carryover && data.carryover[ch.id]) || [];
   var plan = [];
   var dayOfYear = Math.floor((NOW - new Date(NOW.getFullYear(), 0, 0)) / 86400000);
-
-  function pageLabel(wb, numPages) {
-    var start = (wb.donePages || 0) + 1;
-    var end = Math.min(start + numPages - 1, wb.totalPages);
-    if (start > wb.totalPages) return "完了";
-    if (start === end) return "P" + start;
-    return "P" + start + "-P" + end;
-  }
 
   // Carryover items first
   carryover.forEach(function (ci) {
@@ -562,7 +560,7 @@ function HomeTab(p) {
       d.todayChecks[ch.id][TD]["time_" + item.id] = item._elapsed;
       if (!d.studyLogs) d.studyLogs = {};
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: item._elapsed, title: item.label + (isPartial ? "（途中まで）" : "") });
+      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: item._elapsed, title: item.label + (isPartial ? "（途中まで）" : ""), subject: item.subject || "" });
     }
 
     // Award points (configurable)
@@ -672,65 +670,86 @@ function TodayPlanCard(p) {
 
   const [editing, setEditing] = useState(false);
   const [addLabel, setAddLabel] = useState("");
-  const [addSubj, setAddSubj] = useState(ch.subjects[0]);
+  const [addSubj, setAddSubj] = useState(ch.subjects[0] || "");
+  const [addWbId, setAddWbId] = useState("");
+  const [addWbPages, setAddWbPages] = useState("2");
   const [kanjiInput, setKanjiInput] = useState("");
   const [showKanji, setShowKanji] = useState(false);
+  const [dayOffset, setDayOffset] = useState(0); // 0=today, 1=tomorrow, etc.
 
-  // Get hidden items (parent removed for today)
-  var hidden = (data.todayOverrides && data.todayOverrides[ch.id] && data.todayOverrides[ch.id][TD] && data.todayOverrides[ch.id][TD].hidden) || [];
-  var added = (data.todayOverrides && data.todayOverrides[ch.id] && data.todayOverrides[ch.id][TD] && data.todayOverrides[ch.id][TD].added) || [];
+  var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
+
+  // Target date for editing
+  var targetDate = new Date(NOW);
+  targetDate.setDate(targetDate.getDate() + dayOffset);
+  var targetTD = targetDate.getFullYear() + "-" + String(targetDate.getMonth() + 1).padStart(2, "0") + "-" + String(targetDate.getDate()).padStart(2, "0");
+  var isToday = dayOffset === 0;
+  var dayLabel = isToday ? "今日" : dayOffset === 1 ? "明日" : (targetDate.getMonth() + 1) + "/" + targetDate.getDate();
+
+  // Get hidden items (parent removed for target date)
+  var hidden = (data.todayOverrides && data.todayOverrides[ch.id] && data.todayOverrides[ch.id][targetTD] && data.todayOverrides[ch.id][targetTD].hidden) || [];
+  var added = (data.todayOverrides && data.todayOverrides[ch.id] && data.todayOverrides[ch.id][targetTD] && data.todayOverrides[ch.id][targetTD].added) || [];
 
   var visiblePending = pendingPlan.filter(function (item) { return hidden.indexOf(item.id) === -1; });
-  // Add parent-added items
-  var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD]) || {};
+  var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][targetTD]) || {};
   var addedItems = added.map(function (a) {
-    return { id: a.id, label: a.label, subject: a.subject || "", time: a.time || "", action: "custom", emoji: "✏️", done: !!todayDone["custom_" + a.id] };
+    return { id: a.id, label: a.label, subject: a.subject || "", time: a.time || "", action: "custom", emoji: a.emoji || "✏️", done: !!todayDone["custom_" + a.id], wbId: a.wbId, pages: a.pages };
   }).filter(function (a) { return !a.done; });
   var addedDone = added.map(function (a) {
     return { id: a.id, label: a.label, done: !!todayDone["custom_" + a.id] };
   }).filter(function (a) { return a.done; });
 
-  var allPending = visiblePending.concat(addedItems);
-  var allDone = donePlan.concat(addedDone);
+  var allPending = isToday ? visiblePending.concat(addedItems) : addedItems;
+  var allDone = isToday ? donePlan.concat(addedDone) : addedDone;
   var actualRemain = allPending.length;
+
+  var ensureOverrides = function (d, date) {
+    if (!d.todayOverrides) d.todayOverrides = {};
+    if (!d.todayOverrides[ch.id]) d.todayOverrides[ch.id] = {};
+    if (!d.todayOverrides[ch.id][date]) d.todayOverrides[ch.id][date] = { hidden: [], added: [] };
+  };
 
   var hideItem = function (itemId) {
     var d = clone(data);
-    if (!d.todayOverrides) d.todayOverrides = {};
-    if (!d.todayOverrides[ch.id]) d.todayOverrides[ch.id] = {};
-    if (!d.todayOverrides[ch.id][TD]) d.todayOverrides[ch.id][TD] = { hidden: [], added: [] };
-    d.todayOverrides[ch.id][TD].hidden.push(itemId);
+    ensureOverrides(d, targetTD);
+    d.todayOverrides[ch.id][targetTD].hidden.push(itemId);
     save(d);
   };
 
   var unhideItem = function (itemId) {
     var d = clone(data);
-    if (d.todayOverrides && d.todayOverrides[ch.id] && d.todayOverrides[ch.id][TD]) {
-      d.todayOverrides[ch.id][TD].hidden = d.todayOverrides[ch.id][TD].hidden.filter(function (h) { return h !== itemId; });
+    if (d.todayOverrides && d.todayOverrides[ch.id] && d.todayOverrides[ch.id][targetTD]) {
+      d.todayOverrides[ch.id][targetTD].hidden = d.todayOverrides[ch.id][targetTD].hidden.filter(function (h) { return h !== itemId; });
     }
     save(d);
   };
 
   var addCustom = function () {
-    if (!addLabel.trim()) return;
+    if (!addLabel.trim() && !addWbId) return;
     var d = clone(data);
-    if (!d.todayOverrides) d.todayOverrides = {};
-    if (!d.todayOverrides[ch.id]) d.todayOverrides[ch.id] = {};
-    if (!d.todayOverrides[ch.id][TD]) d.todayOverrides[ch.id][TD] = { hidden: [], added: [] };
-    d.todayOverrides[ch.id][TD].added.push({ id: "cust" + Date.now(), label: addLabel.trim(), subject: addSubj, time: "" });
+    ensureOverrides(d, targetTD);
+    if (addWbId) {
+      var wb = wbs.find(function (w) { return w.id === addWbId; });
+      if (wb) {
+        var pages = parseInt(addWbPages) || 2;
+        var label = wb.name + " " + pageLabel(wb, pages);
+        d.todayOverrides[ch.id][targetTD].added.push({ id: "cust" + Date.now(), label: label, subject: wb.subject, time: (pages * (wb.minPerPage || 3)) + "分", wbId: wb.id, pages: pages, emoji: "📖" });
+      }
+    } else {
+      d.todayOverrides[ch.id][targetTD].added.push({ id: "cust" + Date.now(), label: addLabel.trim(), subject: addSubj, time: "", emoji: "✏️" });
+    }
     save(d);
     setAddLabel("");
+    setAddWbId("");
   };
 
   var addKanji = function () {
     if (!kanjiInput.trim()) return;
     var chars = kanjiInput.trim().split("").filter(function (c) { return c.trim(); });
     var d = clone(data);
-    if (!d.todayOverrides) d.todayOverrides = {};
-    if (!d.todayOverrides[ch.id]) d.todayOverrides[ch.id] = {};
-    if (!d.todayOverrides[ch.id][TD]) d.todayOverrides[ch.id][TD] = { hidden: [], added: [] };
+    ensureOverrides(d, targetTD);
     chars.forEach(function (c) {
-      d.todayOverrides[ch.id][TD].added.push({ id: "kanji" + Date.now() + Math.random(), label: "「" + c + "」をノートに1行書く", subject: "国語", time: "2分" });
+      d.todayOverrides[ch.id][targetTD].added.push({ id: "kanji" + Date.now() + Math.random(), label: "「" + c + "」をノートに1行書く", subject: "国語", time: "2分", emoji: "✏️" });
     });
     save(d);
     setKanjiInput("");
@@ -738,8 +757,8 @@ function TodayPlanCard(p) {
 
   var removeCustom = function (custId) {
     var d = clone(data);
-    if (d.todayOverrides && d.todayOverrides[ch.id] && d.todayOverrides[ch.id][TD]) {
-      d.todayOverrides[ch.id][TD].added = d.todayOverrides[ch.id][TD].added.filter(function (a) { return a.id !== custId; });
+    if (d.todayOverrides && d.todayOverrides[ch.id] && d.todayOverrides[ch.id][targetTD]) {
+      d.todayOverrides[ch.id][targetTD].added = d.todayOverrides[ch.id][targetTD].added.filter(function (a) { return a.id !== custId; });
     }
     save(d);
   };
@@ -748,15 +767,24 @@ function TodayPlanCard(p) {
     var d = clone(data);
     if (!d.todayChecks) d.todayChecks = {};
     if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
-    if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
-    d.todayChecks[ch.id][TD]["custom_" + item.id] = true;
+    if (!d.todayChecks[ch.id][targetTD]) d.todayChecks[ch.id][targetTD] = {};
+    d.todayChecks[ch.id][targetTD]["custom_" + item.id] = true;
     ensurePts(d, ch.id);
-    d.points[ch.id].balance += 1;
-    d.points[ch.id].history.push({ type: "earn", amount: 1, reason: item.label + " 完了", date: TD, id: "cp" + Date.now() });
+    var _pc = d._pointConfig || {};
+    var ptAmt = _pc.taskDone || 1;
+    d.points[ch.id].balance += ptAmt;
+    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + " 完了", date: targetTD, id: "cp" + Date.now() });
     if (item._elapsed && item._elapsed > 0) {
       if (!d.studyLogs) d.studyLogs = {};
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: item._elapsed, title: item.label });
+      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: targetTD, seconds: item._elapsed, title: item.label, subject: item.subject || "" });
+    }
+    // If linked to a workbook, also advance pages
+    if (item.wbId && item.pages) {
+      var target = (d.workbooks[ch.id] || []).find(function (w) { return w.id === item.wbId; });
+      if (target) {
+        target.donePages = Math.min(target.totalPages, (target.donePages || 0) + item.pages);
+      }
     }
     save(d);
   };
@@ -764,7 +792,7 @@ function TodayPlanCard(p) {
   return (
     <div style={S.card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={S.cardTitle}>{isP ? "📋 今日のやること" : "📋 きょうやること"}</div>
+        <div style={S.cardTitle}>{isP ? "📋 " + dayLabel + "のやること" : "📋 きょうやること"}</div>
         {isP && (
           <button onClick={function () { setEditing(!editing); }} style={{ ...S.addBtn, background: editing ? "#999" : ch.color, marginTop: -6 }}>
             {editing ? "✓ 完了" : "✏️ 編集"}
@@ -772,16 +800,36 @@ function TodayPlanCard(p) {
         )}
       </div>
 
-      {timeLimit > 0 && studyMin >= timeLimit && actualRemain > 0 && (
+      {/* Day selector (edit mode) */}
+      {isP && editing && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 10, overflowX: "auto" }}>
+          {[0, 1, 2, 3, 4, 5, 6].map(function (off) {
+            var dd = new Date(NOW);
+            dd.setDate(dd.getDate() + off);
+            var lbl = off === 0 ? "今日" : off === 1 ? "明日" : (dd.getMonth() + 1) + "/" + dd.getDate();
+            return (
+              <button key={off} onClick={function () { setDayOffset(off); }} style={{ ...S.smBtn, background: dayOffset === off ? ch.color : "#f0f0f0", color: dayOffset === off ? "#fff" : "#666", whiteSpace: "nowrap", minWidth: 44 }}>{lbl}</button>
+            );
+          })}
+        </div>
+      )}
+
+      {timeLimit > 0 && studyMin >= timeLimit && actualRemain > 0 && isToday && (
         <div style={{ background: "#FFF3E0", borderRadius: 10, padding: 10, marginBottom: 10, fontSize: 12, color: "#E65100" }}>
           ⏰ 今日は{timeLimit}分がんばりました！残りのタスクは明日やろう。
         </div>
       )}
 
-      {actualRemain === 0 && allDone.length > 0 && (
+      {actualRemain === 0 && allDone.length > 0 && isToday && (
         <div style={{ textAlign: "center", padding: 16 }}>
           <div style={{ fontSize: 40 }}>🎉</div>
           <div style={{ fontSize: 15, fontWeight: 800, color: "#4CAF50", marginTop: 6 }}>今日のぶん、ぜんぶ終わったよ！</div>
+        </div>
+      )}
+
+      {!isToday && !editing && actualRemain === 0 && (
+        <div style={{ textAlign: "center", padding: 16, color: "#ccc" }}>
+          <div style={{ fontSize: 13 }}>{dayLabel}の予定はまだありません</div>
         </div>
       )}
 
@@ -796,6 +844,15 @@ function TodayPlanCard(p) {
             </div>
           );
         }
+        if (!isToday) return (
+          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #f3f3f3" }}>
+            <span style={{ fontSize: 16 }}>{item.emoji}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{item.label}</div>
+              {item.subject && <div style={{ fontSize: 10, color: "#999" }}>{item.subject}</div>}
+            </div>
+          </div>
+        );
         if (item.action === "custom") {
           return <PlanItem key={item.id} item={item} ch={ch} data={data} save={save} checkPlanItem={function (it) { checkCustom(it); }} />;
         }
@@ -803,9 +860,9 @@ function TodayPlanCard(p) {
       })}
 
       {/* Hidden items (show in edit mode) */}
-      {editing && hidden.length > 0 && (
+      {editing && isToday && hidden.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: "#bbb", fontWeight: 600, marginBottom: 4 }}>🚫 今日はやらない</div>
+          <div style={{ fontSize: 11, color: "#bbb", fontWeight: 600, marginBottom: 4 }}>🚫 {dayLabel}はやらない</div>
           {hidden.map(function (hid) {
             var orig = plan.find(function (pp) { return pp.id === hid; });
             if (!orig) return null;
@@ -822,16 +879,44 @@ function TodayPlanCard(p) {
       {/* Add custom task (edit mode) */}
       {editing && (
         <div style={{ marginTop: 10, padding: 10, background: "#f9f9f9", borderRadius: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 6 }}>＋ 今日だけのタスクを追加</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 算数テスト勉強" style={S.input} />
-            <button onClick={addCustom} style={{ ...S.smBtn, background: ch.color, color: "#fff", whiteSpace: "nowrap" }}>追加</button>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 6 }}>＋ {dayLabel}のタスクを追加</div>
+          {/* Toggle: free text or workbook */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <button onClick={function () { setAddWbId(""); }} style={{ ...S.smBtn, background: !addWbId ? ch.color : "#f0f0f0", color: !addWbId ? "#fff" : "#666", flex: 1 }}>自由入力</button>
+            <button onClick={function () { setAddWbId(wbs.length > 0 ? wbs[0].id : ""); }} style={{ ...S.smBtn, background: addWbId ? ch.color : "#f0f0f0", color: addWbId ? "#fff" : "#666", flex: 1 }}>問題集から</button>
           </div>
+          {addWbId ? (
+            <div>
+              <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 6 }}>
+                {wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}（{wb.subject}）</option>; })}
+              </select>
+              {wbs.find(function (w) { return w.id === addWbId && w.type === "pages"; }) && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: "#666" }}>ページ数</span>
+                  <input type="number" value={addWbPages} onChange={function (e) { setAddWbPages(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                </div>
+              )}
+              <button onClick={addCustom} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%", padding: 8 }}>追加</button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 算数テスト勉強" style={{ ...S.input, flex: 1 }} />
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <select value={addSubj} onChange={function (e) { setAddSubj(e.target.value); }} style={{ ...S.input, flex: 1 }}>
+                  {ch.subjects.map(function (s) { return <option key={s} value={s}>{s}</option>; })}
+                  <option value="">なし</option>
+                </select>
+                <button onClick={addCustom} style={{ ...S.smBtn, background: ch.color, color: "#fff", whiteSpace: "nowrap" }}>追加</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Kanji practice quick-add (parent mode, always visible) */}
-      {isP && !editing && (
+      {isP && !editing && isToday && (
         <div style={{ marginTop: 8 }}>
           {!showKanji ? (
             <button onClick={function () { setShowKanji(true); }} style={{ width: "100%", padding: 8, borderRadius: 8, border: "2px dashed #CE93D8", background: "transparent", fontSize: 12, fontWeight: 700, color: "#9C27B0", cursor: "pointer" }}>
@@ -852,11 +937,11 @@ function TodayPlanCard(p) {
       )}
 
       {/* Done items */}
-      {allDone.length > 0 && !editing && (
+      {allDone.length > 0 && !editing && isToday && (
         <div style={{ marginTop: 8 }}>
           <div style={{ fontSize: 11, color: "#bbb", fontWeight: 600, marginBottom: 4 }}>✅ 今日おわったもの</div>
           {allDone.map(function (item) {
-            var elapsed = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["time_" + item.id]) || 0;
+            var elapsed = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][targetTD] && data.todayChecks[ch.id][targetTD]["time_" + item.id]) || 0;
             return (
               <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", opacity: .5 }}>
                 <div style={{ width: 28, height: 28, borderRadius: 14, background: "#4CAF50", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1689,6 +1774,40 @@ function ReviewTab(p) {
           <MStat l="活動日数" v={activeDays + "/" + daysInMonth + "日"} c="#FF9800" />
         </div>
       </div>
+
+      {/* Subject breakdown */}
+      {(function () {
+        var subjMap = {};
+        monthLogs.forEach(function (l) {
+          var subj = l.subject || "その他";
+          if (!subjMap[subj]) subjMap[subj] = 0;
+          subjMap[subj] += l.seconds;
+        });
+        var subjArr = Object.keys(subjMap).map(function (s) { return { name: s, sec: subjMap[s] }; }).sort(function (a, b) { return b.sec - a.sec; });
+        var maxSubjSec = subjArr.length > 0 ? subjArr[0].sec : 1;
+        var colors = ["#2196F3", "#4CAF50", "#FF9800", "#E53935", "#9C27B0", "#00BCD4", "#795548", "#607D8B"];
+        if (subjArr.length === 0) return null;
+        return (
+          <div style={S.card}>
+            <div style={S.cardTitle}>📚 教科べつ学習時間</div>
+            {subjArr.map(function (s, i) {
+              var pct = Math.round((s.sec / maxSubjSec) * 100);
+              var min = Math.floor(s.sec / 60);
+              var hr = Math.floor(s.sec / 3600);
+              var timeStr = hr > 0 ? hr + "時間" + Math.floor((s.sec % 3600) / 60) + "分" : min + "分";
+              return (
+                <div key={s.name} style={{ marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 2 }}>
+                    <span style={{ fontWeight: 700, color: "#555" }}>{s.name}</span>
+                    <span style={{ color: colors[i % colors.length], fontWeight: 700 }}>{timeStr}</span>
+                  </div>
+                  <div style={S.progBar}><div style={{ height: "100%", borderRadius: 3, background: colors[i % colors.length], width: pct + "%" }} /></div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Monthly Calendar */}
       <div style={S.card}>
