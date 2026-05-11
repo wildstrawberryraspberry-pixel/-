@@ -1031,7 +1031,7 @@ function PlanItem(p) {
       var d = clone(data);
       if (!d.studyLogs) d.studyLogs = {};
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: elapsed, title: item.label + "（中断）" });
+      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: elapsed, title: item.label + "（中断）", subject: item.subject || "" });
       save(d);
     }
     baseRef.current = 0; startRef.current = null;
@@ -1141,7 +1141,7 @@ function Timer(p) {
     if (elapsed > 10) {
       var d = clone(data);
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: elapsed, title: task ? task.title : "自由学習" });
+      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: elapsed, title: task ? task.title : "自由学習", subject: task ? (task.subject || "") : "" });
       save(d);
       setSaved(true);
       setTimeout(function () { setSaved(false); }, 2000);
