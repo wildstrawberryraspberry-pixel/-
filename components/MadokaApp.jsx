@@ -295,7 +295,7 @@ function MainView(p) {
         {tab === "home" && <HomeTab ch={ch} data={data} save={save} isP={isP} setTab={setTab} />}
         {tab === "workbooks" && isM && <WorkbooksTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "points" && isM && <PointsTab ch={ch} data={data} save={save} isP={isP} />}
-        {tab === "review" && isM && <ReviewTab ch={ch} data={data} />}
+        {tab === "review" && isM && <ReviewTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "tests" && isM && <TestsTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "rewards" && isM && <RewardsTab ch={ch} data={data} save={save} isP={isP} />}
       </main>
@@ -959,83 +959,98 @@ function TodayPlanCard(p) {
 }
 
 // ═══ PLAN ITEM with Start/Pause/Resume/Complete/Partial/Stop ═══
+// Timer state persisted in data._timers so switching child tabs doesn't lose it
 function PlanItem(p) {
   var item = p.item, ch = p.ch, data = p.data, save = p.save, checkPlanItem = p.checkPlanItem;
-  const [running, setRunning] = useState(false);
-  const [paused, setPaused] = useState(false);
+  var timerKey = ch.id + "_" + item.id;
+  var stored = (data._timers && data._timers[timerKey]) || null;
+
   const [display, setDisplay] = useState(0);
-  var startRef = useRef(null);  // Date.now() when current run started
-  var baseRef = useRef(0);      // accumulated seconds from previous runs
   var ivRef = useRef(null);
 
+  var running = stored && stored.running;
+  var paused = stored && !stored.running && stored.base > 0;
+
   var calcElapsed = function () {
-    return baseRef.current + (startRef.current ? Math.floor((Date.now() - startRef.current) / 1000) : 0);
+    if (!stored) return 0;
+    return (stored.base || 0) + (stored.running && stored.startedAt ? Math.floor((Date.now() - stored.startedAt) / 1000) : 0);
   };
 
   useEffect(function () {
+    setDisplay(calcElapsed());
     if (running) {
-      startRef.current = Date.now();
-      setDisplay(calcElapsed());
       ivRef.current = setInterval(function () { setDisplay(calcElapsed()); }, 1000);
     } else {
-      if (startRef.current) {
-        baseRef.current = baseRef.current + Math.floor((Date.now() - startRef.current) / 1000);
-        startRef.current = null;
-      }
       if (ivRef.current) { clearInterval(ivRef.current); ivRef.current = null; }
-      setDisplay(baseRef.current);
     }
     return function () { if (ivRef.current) { clearInterval(ivRef.current); ivRef.current = null; } };
-  }, [running]);
+  }, [running, stored && stored.startedAt, stored && stored.base]);
 
-  // On visibility change (returning from sleep/background), recalculate
   useEffect(function () {
     function onVis() {
-      if (document.visibilityState === "visible" && startRef.current) {
+      if (document.visibilityState === "visible") {
         setDisplay(calcElapsed());
-        // Restart interval since it may have been throttled
-        if (ivRef.current) clearInterval(ivRef.current);
-        ivRef.current = setInterval(function () { setDisplay(calcElapsed()); }, 1000);
+        if (running) {
+          if (ivRef.current) clearInterval(ivRef.current);
+          ivRef.current = setInterval(function () { setDisplay(calcElapsed()); }, 1000);
+        }
       }
     }
     document.addEventListener("visibilitychange", onVis);
     return function () { document.removeEventListener("visibilitychange", onVis); };
-  }, []);
+  }, [running, stored && stored.startedAt, stored && stored.base]);
 
-  var handleStart = function () { setRunning(true); setPaused(false); };
-  var handlePause = function () { setRunning(false); setPaused(true); };
-  var handleResume = function () { setRunning(true); setPaused(false); };
+  var saveTimer = function (obj) {
+    var d = clone(data);
+    if (!d._timers) d._timers = {};
+    d._timers[timerKey] = obj;
+    save(d);
+  };
+
+  var clearTimerData = function (d) {
+    if (!d._timers) d._timers = {};
+    delete d._timers[timerKey];
+    return d;
+  };
+
+  var handleStart = function () {
+    saveTimer({ running: true, startedAt: Date.now(), base: 0 });
+  };
+
+  var handlePause = function () {
+    var elapsed = calcElapsed();
+    saveTimer({ running: false, startedAt: null, base: elapsed });
+  };
+
+  var handleResume = function () {
+    saveTimer({ running: true, startedAt: Date.now(), base: stored ? stored.base || 0 : 0 });
+  };
 
   var handleComplete = function () {
     var elapsed = calcElapsed();
-    setRunning(false); setPaused(false);
-    baseRef.current = 0; startRef.current = null;
+    var d = clearTimerData(clone(data));
+    save(d);
     var itemWithTime = Object.assign({}, item, { _elapsed: elapsed });
     checkPlanItem(itemWithTime);
-    setDisplay(0);
   };
 
   var handlePartial = function () {
     var elapsed = calcElapsed();
-    setRunning(false); setPaused(false);
-    baseRef.current = 0; startRef.current = null;
+    var d = clearTimerData(clone(data));
+    save(d);
     var itemWithTime = Object.assign({}, item, { _elapsed: elapsed, _partial: true });
     checkPlanItem(itemWithTime);
-    setDisplay(0);
   };
 
   var handleQuit = function () {
     var elapsed = calcElapsed();
-    setRunning(false); setPaused(false);
+    var d = clearTimerData(clone(data));
     if (elapsed > 10) {
-      var d = clone(data);
       if (!d.studyLogs) d.studyLogs = {};
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
       d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: elapsed, title: item.label + "（中断）", subject: item.subject || "" });
-      save(d);
     }
-    baseRef.current = 0; startRef.current = null;
-    setDisplay(0);
+    save(d);
   };
 
   var hasPages = item.action === "pages" || item.action === "pit_pages";
@@ -1694,27 +1709,28 @@ function PointsTab(p) {
 
 // ═══ REVIEW TAB ═══
 function ReviewTab(p) {
-  var ch = p.ch, data = p.data;
+  var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   var logs = (data.studyLogs && data.studyLogs[ch.id]) || [];
   var checks = (data.todayChecks && data.todayChecks[ch.id]) || {};
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
 
-  const [monthOffset, setMonthOffset] = useState(0); // 0 = this month, -1 = last month, etc.
+  const [monthOffset, setMonthOffset] = useState(0);
+  const [selectedDay, setSelectedDay] = useState(null); // date string or null
+  const [editLogId, setEditLogId] = useState(null);
+  const [editMin, setEditMin] = useState("");
+  const [editSec, setEditSec] = useState("");
 
-  // Current viewing month
   var viewDate = new Date(NOW.getFullYear(), NOW.getMonth() + monthOffset, 1);
   var viewYear = viewDate.getFullYear();
-  var viewMonth = viewDate.getMonth(); // 0-based
+  var viewMonth = viewDate.getMonth();
   var viewMonthLabel = viewYear + "年" + (viewMonth + 1) + "月";
 
-  // Days in this month
   var daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  var firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay(); // 0=Sun
-  var startPad = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1; // Mon-start
+  var firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
+  var startPad = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
 
-  // Build day data for the month
   var monthDays = [];
-  for (var i = 0; i < startPad; i++) monthDays.push(null); // empty padding
+  for (var i = 0; i < startPad; i++) monthDays.push(null);
   for (var d = 1; d <= daysInMonth; d++) {
     var ds = viewYear + "-" + String(viewMonth + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
     var dayLogs = logs.filter(function (l) { return l.date === ds; });
@@ -1724,7 +1740,6 @@ function ReviewTab(p) {
     monthDays.push({ date: ds, day: d, sec: daySec, count: doneCount, logs: dayLogs });
   }
 
-  // Month totals
   var monthLogs = logs.filter(function (l) {
     return l.date && l.date.startsWith(viewYear + "-" + String(viewMonth + 1).padStart(2, "0"));
   });
@@ -1737,11 +1752,9 @@ function ReviewTab(p) {
   }
   var activeDays = monthDays.filter(function (d) { return d && (d.sec > 0 || d.count > 0); }).length;
 
-  // Can navigate?
   var canGoBack = monthOffset > -11;
   var canGoForward = monthOffset < 0;
 
-  // Weekly graph for the month
   var weeklyData = [];
   var weekStart = 1;
   while (weekStart <= daysInMonth) {
@@ -1760,15 +1773,68 @@ function ReviewTab(p) {
   }
   var maxWeekSec = Math.max.apply(null, weeklyData.map(function (w) { return w.sec; }).concat([1]));
 
+  // Day detail data
+  var dayDetail = null;
+  if (selectedDay) {
+    var sdLogs = logs.filter(function (l) { return l.date === selectedDay; });
+    var sdChecks = checks[selectedDay] || {};
+    var sdDoneCount = Object.keys(sdChecks).filter(function (k) { return k !== "_plan" && !k.startsWith("time_") && sdChecks[k] === true; }).length;
+    var sdSec = sdLogs.reduce(function (s, l) { return s + l.seconds; }, 0);
+    dayDetail = { date: selectedDay, logs: sdLogs, doneCount: sdDoneCount, totalSec: sdSec };
+  }
+
+  var startEditLog = function (log) {
+    setEditLogId(log.id);
+    setEditMin(String(Math.floor(log.seconds / 60)));
+    setEditSec(String(log.seconds % 60));
+  };
+
+  var saveEditLog = function () {
+    var newSec = (parseInt(editMin) || 0) * 60 + (parseInt(editSec) || 0);
+    if (newSec < 0) newSec = 0;
+    var dd = clone(data);
+    if (dd.studyLogs && dd.studyLogs[ch.id]) {
+      dd.studyLogs[ch.id] = dd.studyLogs[ch.id].map(function (l) {
+        if (l.id === editLogId) return Object.assign({}, l, { seconds: newSec });
+        return l;
+      });
+    }
+    save(dd);
+    setEditLogId(null);
+  };
+
+  var deleteLog = function (logId) {
+    var dd = clone(data);
+    if (dd.studyLogs && dd.studyLogs[ch.id]) {
+      dd.studyLogs[ch.id] = dd.studyLogs[ch.id].filter(function (l) { return l.id !== logId; });
+    }
+    save(dd);
+  };
+
+  var addManualLog = function () {
+    var dd = clone(data);
+    if (!dd.studyLogs) dd.studyLogs = {};
+    if (!dd.studyLogs[ch.id]) dd.studyLogs[ch.id] = [];
+    dd.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: selectedDay, seconds: 0, title: "手動追加", subject: "" });
+    save(dd);
+  };
+
+  // Parse selected day label
+  var selectedDayLabel = "";
+  if (selectedDay) {
+    var sp = selectedDay.split("-");
+    selectedDayLabel = parseInt(sp[1]) + "月" + parseInt(sp[2]) + "日";
+  }
+
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 12 }}>{ch.emoji} ふりかえり</h2>
 
       {/* Month Navigation */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
-        <button onClick={function () { if (canGoBack) setMonthOffset(monthOffset - 1); }} disabled={!canGoBack} style={{ background: "none", border: "none", fontSize: 20, cursor: canGoBack ? "pointer" : "default", opacity: canGoBack ? 1 : .3 }}>◀</button>
+        <button onClick={function () { if (canGoBack) { setMonthOffset(monthOffset - 1); setSelectedDay(null); } }} disabled={!canGoBack} style={{ background: "none", border: "none", fontSize: 20, cursor: canGoBack ? "pointer" : "default", opacity: canGoBack ? 1 : .3 }}>◀</button>
         <div style={{ fontSize: 16, fontWeight: 800, color: "#333", minWidth: 120, textAlign: "center" }}>{viewMonthLabel}</div>
-        <button onClick={function () { if (canGoForward) setMonthOffset(monthOffset + 1); }} disabled={!canGoForward} style={{ background: "none", border: "none", fontSize: 20, cursor: canGoForward ? "pointer" : "default", opacity: canGoForward ? 1 : .3 }}>▶</button>
+        <button onClick={function () { if (canGoForward) { setMonthOffset(monthOffset + 1); setSelectedDay(null); } }} disabled={!canGoForward} style={{ background: "none", border: "none", fontSize: 20, cursor: canGoForward ? "pointer" : "default", opacity: canGoForward ? 1 : .3 }}>▶</button>
       </div>
 
       {/* Month Summary */}
@@ -1816,7 +1882,7 @@ function ReviewTab(p) {
 
       {/* Monthly Calendar */}
       <div style={S.card}>
-        <div style={S.cardTitle}>📅 カレンダー</div>
+        <div style={S.cardTitle}>📅 カレンダー（日付をタップで詳細）</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
           {["月", "火", "水", "木", "金", "土", "日"].map(function (dw) {
             return <div key={dw} style={{ textAlign: "center", fontSize: 10, color: dw === "土" ? "#2196F3" : dw === "日" ? "#E53935" : "#999", fontWeight: 600, paddingBottom: 4 }}>{dw}</div>;
@@ -1824,10 +1890,11 @@ function ReviewTab(p) {
           {monthDays.map(function (md, idx) {
             if (!md) return <div key={"pad" + idx} />;
             var isToday = md.date === TD;
+            var isSel = md.date === selectedDay;
             var hasAct = md.count > 0 || md.sec > 0;
             return (
-              <div key={md.date} style={{ textAlign: "center", padding: 3, borderRadius: 6, background: isToday ? ch.color + "18" : hasAct ? "#E8F5E9" : "transparent", border: isToday ? "2px solid " + ch.color : "2px solid transparent", minHeight: 36 }}>
-                <div style={{ fontSize: 11, fontWeight: isToday ? 800 : 400, color: isToday ? ch.color : "#555" }}>{md.day}</div>
+              <div key={md.date} onClick={function () { setSelectedDay(isSel ? null : md.date); setEditLogId(null); }} style={{ textAlign: "center", padding: 3, borderRadius: 6, background: isSel ? ch.color + "25" : isToday ? ch.color + "18" : hasAct ? "#E8F5E9" : "transparent", border: isSel ? "2px solid " + ch.color : isToday ? "2px solid " + ch.color + "60" : "2px solid transparent", minHeight: 36, cursor: "pointer" }}>
+                <div style={{ fontSize: 11, fontWeight: isSel || isToday ? 800 : 400, color: isSel ? ch.color : isToday ? ch.color : "#555" }}>{md.day}</div>
                 {hasAct && (
                   <div style={{ marginTop: 1 }}>
                     {md.count > 0 && <div style={{ fontSize: 7, color: "#4CAF50", fontWeight: 700 }}>{md.count}個</div>}
@@ -1839,6 +1906,58 @@ function ReviewTab(p) {
           })}
         </div>
       </div>
+
+      {/* Day Detail */}
+      {dayDetail && (
+        <div style={{ ...S.card, border: "2px solid " + ch.color + "30", animation: "fadeIn .2s ease" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={S.cardTitle}>📖 {selectedDayLabel}の学習内容</div>
+            <button onClick={function () { setSelectedDay(null); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>✕</button>
+          </div>
+          <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+            <MStat l="タスク" v={dayDetail.doneCount + "個"} c="#4CAF50" />
+            <MStat l="学習時間" v={Math.floor(dayDetail.totalSec / 60) + "分"} c="#2196F3" />
+          </div>
+          {dayDetail.logs.length === 0 && <div style={{ fontSize: 12, color: "#ccc", textAlign: "center", padding: 10 }}>この日の記録はありません</div>}
+          {dayDetail.logs.map(function (l) {
+            var isEditing = editLogId === l.id;
+            return (
+              <div key={l.id} style={{ padding: "8px 0", borderBottom: "1px solid #f5f5f5" }}>
+                {isEditing ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#333", marginBottom: 4 }}>{l.title}{l.subject ? "（" + l.subject + "）" : ""}</div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="number" value={editMin} onChange={function (e) { setEditMin(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                      <span style={{ fontSize: 11, color: "#999" }}>分</span>
+                      <input type="number" value={editSec} onChange={function (e) { setEditSec(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                      <span style={{ fontSize: 11, color: "#999" }}>秒</span>
+                      <button onClick={saveEditLog} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff" }}>保存</button>
+                      <button onClick={function () { setEditLogId(null); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>×</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#333" }}>{l.title}</div>
+                      {l.subject && <div style={{ fontSize: 10, color: "#999" }}>{l.subject}</div>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: ch.color }}>{Math.floor(l.seconds / 60)}分{l.seconds % 60 > 0 ? l.seconds % 60 + "秒" : ""}</span>
+                      {isP && <button onClick={function () { startEditLog(l); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#bbb" }}>✏️</button>}
+                      {isP && <button onClick={function () { deleteLog(l.id); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#ddd" }}>🗑</button>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {isP && (
+            <button onClick={addManualLog} style={{ width: "100%", marginTop: 8, padding: 8, borderRadius: 8, border: "2px dashed " + ch.color + "40", background: "transparent", fontSize: 12, fontWeight: 700, color: ch.color, cursor: "pointer" }}>
+              ＋ 学習記録を手動で追加
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Weekly Bar Graph */}
       <div style={S.card}>
@@ -1891,21 +2010,6 @@ function ReviewTab(p) {
             );
           }
         })}
-      </div>
-
-      {/* Month's Log */}
-      <div style={S.card}>
-        <div style={S.cardTitle}>📜 {viewMonth + 1}月の学習記録</div>
-        {monthLogs.length === 0 && <div style={{ fontSize: 12, color: "#ccc" }}>この月の記録はありません</div>}
-        {monthLogs.slice().reverse().slice(0, 30).map(function (l, i) {
-          return (
-            <div key={l.id || i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "5px 0", borderBottom: "1px solid #f5f5f5" }}>
-              <span style={{ color: "#666" }}>{dl(l.date)} {l.title}</span>
-              <span style={{ color: ch.color, fontWeight: 700 }}>{Math.floor(l.seconds / 60)}分</span>
-            </div>
-          );
-        })}
-        {monthLogs.length > 30 && <div style={{ fontSize: 11, color: "#bbb", textAlign: "center", marginTop: 4 }}>他{monthLogs.length - 30}件</div>}
       </div>
     </div>
   );
