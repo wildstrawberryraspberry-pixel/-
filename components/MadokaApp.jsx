@@ -555,6 +555,12 @@ function HomeTab(p) {
       }
     }
 
+    // Clear timer data if requested (完了・途中完了時、save競合を防ぐため同じdで処理)
+    if (item._clearTimerKey) {
+      if (!d._timers) d._timers = {};
+      delete d._timers[item._clearTimerKey];
+    }
+
     // Save elapsed time
     if (item._elapsed && item._elapsed > 0) {
       d.todayChecks[ch.id][TD]["time_" + item.id] = item._elapsed;
@@ -778,6 +784,11 @@ function TodayPlanCard(p) {
       if (!d.studyLogs) d.studyLogs = {};
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
       d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: targetTD, seconds: item._elapsed, title: item.label, subject: item.subject || "" });
+    }
+    // タイマークリア（完了時）
+    if (item._clearTimerKey) {
+      if (!d._timers) d._timers = {};
+      delete d._timers[item._clearTimerKey];
     }
     // If linked to a workbook, also advance pages
     if (item.wbId && item.pages) {
@@ -1028,17 +1039,15 @@ function PlanItem(p) {
 
   var handleComplete = function () {
     var elapsed = calcElapsed();
-    var d = clearTimerData(clone(data));
-    save(d);
-    var itemWithTime = Object.assign({}, item, { _elapsed: elapsed });
+    // タイマークリア情報をitemに乗せてcheckPlanItemに渡す
+    // checkPlanItem内でclone(data)するので、_clearTimerKeyを見てそこでもクリアする
+    var itemWithTime = Object.assign({}, item, { _elapsed: elapsed, _clearTimerKey: timerKey });
     checkPlanItem(itemWithTime);
   };
 
   var handlePartial = function () {
     var elapsed = calcElapsed();
-    var d = clearTimerData(clone(data));
-    save(d);
-    var itemWithTime = Object.assign({}, item, { _elapsed: elapsed, _partial: true });
+    var itemWithTime = Object.assign({}, item, { _elapsed: elapsed, _partial: true, _clearTimerKey: timerKey });
     checkPlanItem(itemWithTime);
   };
 
