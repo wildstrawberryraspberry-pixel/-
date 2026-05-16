@@ -504,14 +504,7 @@ function HomeTab(p) {
       if (!d._timers) d._timers = {};
       delete d._timers[item._clearTimerKey];
     }
-    // Save elapsed time
-    if (item._elapsed && item._elapsed > 0) {
-      d.todayChecks[ch.id][TD]["time_" + item.id] = item._elapsed;
-      if (!d.studyLogs) d.studyLogs = {};
-      if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: item._elapsed, title: item.label + (isPartial ? "（途中まで）" : ""), subject: item.subject || "" });
-    }
-    // Award points (configurable)
+    // ポイント・履歴IDを先に決定（studyLogのmetaに埋め込むため。2026-05-16）
     ensurePts(d, ch.id);
     var _pc = d._pointConfig || {};
     var ptAmt;
@@ -521,8 +514,33 @@ function HomeTab(p) {
     else if (item.action === "pages" || item.action === "pit_pages") { ptAmt = _pc.pageDone || 1; }
     else if (item.action === "smile") { ptAmt = _pc.smileDone || 1; }
     else { ptAmt = _pc.taskDone || 1; }
+    var _ptHistoryId = "tp" + Date.now();
+    var _wbAdvance = (item.wbId && (item.action === "pages" || item.action === "pit_pages") && pagesAdvanced > 0) ? { wbId: item.wbId, pages: pagesAdvanced } : undefined;
+    // Save elapsed time + meta（ふりかえりから記録削除時に連動取消できるように）
+    if (item._elapsed && item._elapsed > 0) {
+      d.todayChecks[ch.id][TD]["time_" + item.id] = item._elapsed;
+      if (!d.studyLogs) d.studyLogs = {};
+      if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
+      d.studyLogs[ch.id].push({
+        id: "sl" + Date.now(),
+        date: TD,
+        seconds: item._elapsed,
+        title: item.label + (isPartial ? "（途中まで）" : ""),
+        subject: item.subject || "",
+        meta: {
+          checkKey: checkKey,
+          checkDate: TD,
+          ptAwarded: ptAmt,
+          ptHistoryId: _ptHistoryId,
+          wbAdvance: _wbAdvance,
+          isPartial: !!isPartial,
+          customTaskId: item.action === "task" ? item.taskId : undefined,
+        }
+      });
+    }
+    // Award points (configurable)
     d.points[ch.id].balance += ptAmt;
-    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + (isPartial ? " 途中まで" : " 完了"), date: TD, id: "tp" + Date.now() });
+    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + (isPartial ? " 途中まで" : " 完了"), date: TD, id: _ptHistoryId });
     save(d);
   };
   return (
@@ -707,12 +725,29 @@ function TodayPlanCard(p) {
     ensurePts(d, ch.id);
     var _pc = d._pointConfig || {};
     var ptAmt = _pc.taskDone || 1;
+    var _ptHistoryId = "cp" + Date.now();
+    var _wbAdvance = (item.wbId && item.pages) ? { wbId: item.wbId, pages: item.pages } : undefined;
     d.points[ch.id].balance += ptAmt;
-    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + " 完了", date: targetTD, id: "cp" + Date.now() });
+    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + " 完了", date: targetTD, id: _ptHistoryId });
     if (item._elapsed && item._elapsed > 0) {
       if (!d.studyLogs) d.studyLogs = {};
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-      d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: targetTD, seconds: item._elapsed, title: item.label, subject: item.subject || "" });
+      d.studyLogs[ch.id].push({
+        id: "sl" + Date.now(),
+        date: targetTD,
+        seconds: item._elapsed,
+        title: item.label,
+        subject: item.subject || "",
+        meta: {
+          checkKey: "custom_" + item.id,
+          checkDate: targetTD,
+          ptAwarded: ptAmt,
+          ptHistoryId: _ptHistoryId,
+          wbAdvance: _wbAdvance,
+          isPartial: false,
+          customTaskId: item.id,
+        }
+      });
     }
     // タイマークリア（完了時）
     if (item._clearTimerKey) {
@@ -1649,11 +1684,78 @@ function ReviewTab(p) {
     save(dd);
     setEditLogId(null);
   };
+  // 学習記録の削除 → 紐付く完了チェック・ポイント・問題集進捗も連動して巻き戻す（2026-05-16 改修）
   var deleteLog = function (logId) {
     var dd = clone(data);
-    if (dd.studyLogs && dd.studyLogs[ch.id]) {
-      dd.studyLogs[ch.id] = dd.studyLogs[ch.id].filter(function (l) { return l.id !== logId; });
+    if (!dd.studyLogs || !dd.studyLogs[ch.id]) { return; }
+    var log = dd.studyLogs[ch.id].find(function (l) { return l.id === logId; });
+    if (!log) { return; }
+    if (log.meta) {
+      // ─── meta あり：正確に巻き戻す ───
+      var m = log.meta;
+      // 1) todayChecks の完了チェックを取消
+      if (m.checkDate && m.checkKey && dd.todayChecks && dd.todayChecks[ch.id] && dd.todayChecks[ch.id][m.checkDate]) {
+        delete dd.todayChecks[ch.id][m.checkDate][m.checkKey];
+      }
+      // 2) ポイント取消
+      if (m.ptAwarded && dd.points && dd.points[ch.id]) {
+        dd.points[ch.id].balance = Math.max(0, dd.points[ch.id].balance - m.ptAwarded);
+        if (m.ptHistoryId && dd.points[ch.id].history) {
+          dd.points[ch.id].history = dd.points[ch.id].history.filter(function (h) { return h.id !== m.ptHistoryId; });
+        }
+      }
+      // 3) 問題集ページの巻き戻し
+      if (m.wbAdvance && m.wbAdvance.wbId && m.wbAdvance.pages && dd.workbooks && dd.workbooks[ch.id]) {
+        var wbBack = dd.workbooks[ch.id].find(function (w) { return w.id === m.wbAdvance.wbId; });
+        if (wbBack) wbBack.donePages = Math.max(0, (wbBack.donePages || 0) - m.wbAdvance.pages);
+      }
+      // 4) カスタムタスクなら todayOverrides.added からも削除
+      if (m.checkKey && m.checkKey.indexOf("custom_") === 0) {
+        var custId = m.checkKey.substring("custom_".length);
+        if (dd.todayOverrides && dd.todayOverrides[ch.id] && dd.todayOverrides[ch.id][m.checkDate]) {
+          dd.todayOverrides[ch.id][m.checkDate].added = (dd.todayOverrides[ch.id][m.checkDate].added || []).filter(function (a) { return a.id !== custId; });
+        }
+      }
+      // 5) 手動タスクの場合 tasks.done = false に戻す
+      if (m.customTaskId && dd.tasks && dd.tasks[ch.id] && dd.tasks[ch.id][m.customTaskId]) {
+        dd.tasks[ch.id][m.customTaskId].done = false;
+        dd.tasks[ch.id][m.customTaskId].doneDate = null;
+      }
+    } else {
+      // ─── meta なしの旧ログ：ヒューリスティックで紐付けを推定（漢字練習1文字タスク等の救済）───
+      var normalize = function (s) {
+        return (s || "").replace(/\s+/g, "").replace(/（途中まで）/g, "").replace(/完了$/, "");
+      };
+      var lTitle = normalize(log.title);
+      if (lTitle && dd.todayOverrides && dd.todayOverrides[ch.id] && dd.todayOverrides[ch.id][log.date]) {
+        var addedArr = dd.todayOverrides[ch.id][log.date].added || [];
+        var matched = addedArr.find(function (a) {
+          var al = normalize(a.label);
+          if (!al) return false;
+          return al === lTitle || al.indexOf(lTitle) >= 0 || lTitle.indexOf(al) >= 0;
+        });
+        if (matched) {
+          var legacyCheckKey = "custom_" + matched.id;
+          if (dd.todayChecks && dd.todayChecks[ch.id] && dd.todayChecks[ch.id][log.date]) {
+            delete dd.todayChecks[ch.id][log.date][legacyCheckKey];
+          }
+          var legacyPt = (dd._pointConfig && dd._pointConfig.taskDone) || 1;
+          if (dd.points && dd.points[ch.id]) {
+            dd.points[ch.id].balance = Math.max(0, dd.points[ch.id].balance - legacyPt);
+            var hist = dd.points[ch.id].history || [];
+            for (var hi = hist.length - 1; hi >= 0; hi--) {
+              if (hist[hi].date === log.date && hist[hi].reason && hist[hi].reason.indexOf(matched.label) === 0) {
+                hist.splice(hi, 1);
+                break;
+              }
+            }
+          }
+          dd.todayOverrides[ch.id][log.date].added = addedArr.filter(function (a) { return a.id !== matched.id; });
+        }
+      }
     }
+    // studyLogs から削除
+    dd.studyLogs[ch.id] = dd.studyLogs[ch.id].filter(function (l) { return l.id !== logId; });
     save(dd);
   };
   var addManualLog = function () {
@@ -1662,6 +1764,56 @@ function ReviewTab(p) {
     if (!dd.studyLogs[ch.id]) dd.studyLogs[ch.id] = [];
     dd.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: selectedDay, seconds: 0, title: "手動追加", subject: "" });
     save(dd);
+  };
+  // この日の記録をすべてリセット（2026-05-16 追加）
+  var resetDay = function () {
+    if (!selectedDay) return;
+    if (typeof window !== "undefined" && window.confirm) {
+      if (!window.confirm(selectedDayLabel + "の記録をすべてリセットします。\n\n・完了タスクのチェック\n・獲得したポイント\n・学習時間の記録\n・その日に追加したタスク\n\nをすべて取り消します。\n\nよろしいですか？")) return;
+    }
+    var dd = clone(data);
+    // 問題集ページ・手動タスクの巻き戻し（meta 付きログから）
+    var dayLogs = (dd.studyLogs && dd.studyLogs[ch.id] || []).filter(function (l) { return l.date === selectedDay; });
+    dayLogs.forEach(function (l) {
+      if (l.meta && l.meta.wbAdvance && l.meta.wbAdvance.wbId && l.meta.wbAdvance.pages && dd.workbooks && dd.workbooks[ch.id]) {
+        var wbR = dd.workbooks[ch.id].find(function (w) { return w.id === l.meta.wbAdvance.wbId; });
+        if (wbR) wbR.donePages = Math.max(0, (wbR.donePages || 0) - l.meta.wbAdvance.pages);
+      }
+      if (l.meta && l.meta.customTaskId && dd.tasks && dd.tasks[ch.id] && dd.tasks[ch.id][l.meta.customTaskId]) {
+        dd.tasks[ch.id][l.meta.customTaskId].done = false;
+        dd.tasks[ch.id][l.meta.customTaskId].doneDate = null;
+      }
+    });
+    // studyLogs クリア
+    if (dd.studyLogs && dd.studyLogs[ch.id]) {
+      dd.studyLogs[ch.id] = dd.studyLogs[ch.id].filter(function (l) { return l.date !== selectedDay; });
+    }
+    // todayChecks クリア
+    if (dd.todayChecks && dd.todayChecks[ch.id]) {
+      delete dd.todayChecks[ch.id][selectedDay];
+    }
+    // todayOverrides クリア（追加タスク・非表示の両方）
+    if (dd.todayOverrides && dd.todayOverrides[ch.id]) {
+      delete dd.todayOverrides[ch.id][selectedDay];
+    }
+    // points.history のその日分を削除＋balance再調整
+    if (dd.points && dd.points[ch.id]) {
+      var allHist = dd.points[ch.id].history || [];
+      var balanceDelta = 0;
+      var keep = [];
+      allHist.forEach(function (h) {
+        if (h.date === selectedDay) {
+          if (h.type === "earn" || h.type === "bonus") balanceDelta -= h.amount || 0;
+          else if (h.type === "spend" || h.type === "undo") balanceDelta += h.amount || 0;
+        } else {
+          keep.push(h);
+        }
+      });
+      dd.points[ch.id].history = keep;
+      dd.points[ch.id].balance = Math.max(0, (dd.points[ch.id].balance || 0) + balanceDelta);
+    }
+    save(dd);
+    setSelectedDay(null);
   };
   // Parse selected day label
   var selectedDayLabel = "";
@@ -1793,6 +1945,16 @@ function ReviewTab(p) {
             <button onClick={addManualLog} style={{ width: "100%", marginTop: 8, padding: 8, borderRadius: 8, border: "2px dashed " + ch.color + "40", background: "transparent", fontSize: 12, fontWeight: 700, color: ch.color, cursor: "pointer" }}>
               ＋ 学習記録を手動で追加
             </button>
+          )}
+          {isP && (dayDetail.logs.length > 0 || dayDetail.doneCount > 0) && (
+            <button onClick={resetDay} style={{ width: "100%", marginTop: 6, padding: 8, borderRadius: 8, border: "1.5px solid #E53935", background: "#fff", fontSize: 11, fontWeight: 700, color: "#E53935", cursor: "pointer" }}>
+              ⚠️ この日の記録をすべてリセット
+            </button>
+          )}
+          {isP && dayDetail.logs.length > 0 && (
+            <div style={{ fontSize: 10, color: "#aaa", textAlign: "center", marginTop: 6, lineHeight: 1.5 }}>
+              ※ 🗑で記録を削除すると、対応する<br />完了チェック・ポイントも自動で取り消されます
+            </div>
           )}
         </div>
       )}
