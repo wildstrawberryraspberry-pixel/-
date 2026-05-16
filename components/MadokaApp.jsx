@@ -1,13 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
-
 const CHILDREN = [
   { id: "daigo", name: "橙吾", grade: "中1", emoji: "⚽", color: "#333333", colorLight: "#F5F5F5", subjects: ["国語", "数学", "英語", "理科", "社会"], mode: "managed" },
   { id: "eishi", name: "叡志", grade: "小5", emoji: "🦎", color: "#29B6F6", colorLight: "#E6F7FF", subjects: ["国語", "算数", "理科", "社会", "英語"], mode: "managed" },
   { id: "yuzuki", name: "優珠綺", grade: "小2", emoji: "🌸", color: "#D64CB0", colorLight: "#FDF0FA", subjects: ["国語", "算数", "生活", "音楽", "図工", "体育"], mode: "managed" },
   { id: "yukino", name: "優綺乃", grade: "2歳", emoji: "🍓", color: "#E74860", colorLight: "#FFF0F3", subjects: [], mode: "managed" },
 ];
-
 // Default test config per child (used only when no stored config exists)
 var DEF_TEST_CFG = {
   daigo:  { types: ["定期テスト", "北辰テスト"], subjects: ["国語", "数学", "英語", "理科", "社会"], hasRank: true },
@@ -15,7 +13,6 @@ var DEF_TEST_CFG = {
   yuzuki: { types: ["テスト"], subjects: ["国語", "算数"], hasRank: false },
   yukino: { types: ["テスト"], subjects: [], hasRank: false },
 };
-
 const DEF_REWARDS = [
   { id: "r1", name: "ゲーム30分延長", cost: 10, emoji: "🎮" },
   { id: "r2", name: "ゲーム1時間延長", cost: 18, emoji: "🕹️" },
@@ -23,7 +20,6 @@ const DEF_REWARDS = [
   { id: "r4", name: "500円に換金", cost: 90, emoji: "💴" },
   { id: "r5", name: "好きなおやつ", cost: 8, emoji: "🍫" },
 ];
-
 const DEF_BONUS = [
   { id: "bc1", name: "自分からやった", points: 2, emoji: "🌟", color: "#FF9800" },
   { id: "bc2", name: "お手伝い", points: 1, emoji: "🧹", color: "#4CAF50" },
@@ -31,10 +27,8 @@ const DEF_BONUS = [
   { id: "bc4", name: "片付け", points: 1, emoji: "🗂️", color: "#2196F3" },
   { id: "bc5", name: "朝の準備を時間内に", points: 1, emoji: "⏰", color: "#9C27B0" },
 ];
-
 const DJ = ["月", "火", "水", "木", "金", "土", "日"];
 const SK = "madoka-v9";
-
 function getToday() {
   var n = new Date();
   return {
@@ -43,11 +37,9 @@ function getToday() {
     tdi: n.getDay() === 0 ? 6 : n.getDay() - 1,
   };
 }
-
 var NOW = new Date();
 var TD = getToday().td;
 var TDI = getToday().tdi;
-
 // ═══ EISHI WORKBOOKS PRESET ═══
 var EISHI_WBS = [
   { id: "wb_chal_koku", name: "チャレンジ国語", subject: "国語", type: "challenge", totalUnits: 5, doneUnits: 2, hasTest: true, testDone: false, minPerUnit: 15, priority: "high", monthly: true },
@@ -60,7 +52,6 @@ var EISHI_WBS = [
   { id: "wb_pit_sha", name: "ぴったりトレーニング社会", subject: "社会", type: "pages", totalPages: 120, donePages: 0, minPerPage: 3, priority: "normal" },
   { id: "wb_kanji", name: "漢字MAXドリル小4", subject: "国語", type: "pages", totalPages: 142, donePages: 14, minPerPage: 5, priority: "normal", dailyPages: 2 },
 ];
-
 // ═══ YUZUKI WORKBOOKS PRESET ═══
 var YUZUKI_WBS = [
   { id: "yw_chal_koku", name: "チャレンジ国語", subject: "国語", type: "challenge", totalUnits: 15, doneUnits: 15, hasTest: true, testDone: true, minPerUnit: 5, priority: "high", monthly: true },
@@ -69,21 +60,16 @@ var YUZUKI_WBS = [
   { id: "yw_pit_kanji", name: "ぴったりトレーニング漢字", subject: "国語", type: "pages", totalPages: 93, donePages: 0, minPerPage: 3, priority: "normal" },
   { id: "yw_kanji", name: "漢字MAXドリル小1", subject: "国語", type: "pages", totalPages: 106, donePages: 12, minPerPage: 3, priority: "normal", dailyPages: 2 },
 ];
-
 // ═══ DAIGO WORKBOOKS PRESET ═══
 var DAIGO_WBS = [];
-
 // ═══ YUKINO WORKBOOKS PRESET ═══
 var YUKINO_WBS = [];
-
 function mkData() {
   return { tasks: {}, points: {}, rewards: DEF_REWARDS, bonusCats: DEF_BONUS, studyLogs: {}, workbooks: { daigo: DAIGO_WBS.map(function (w) { return Object.assign({}, w); }), eishi: EISHI_WBS.map(function (w) { return Object.assign({}, w); }), yuzuki: YUZUKI_WBS.map(function (w) { return Object.assign({}, w); }), yukino: YUKINO_WBS.map(function (w) { return Object.assign({}, w); }) }, todayChecks: {}, tests: {} };
 }
-
 function clone(d) {
   return JSON.parse(JSON.stringify(d));
 }
-
 function dl(s) {
   try {
     var d = new Date(s);
@@ -92,33 +78,27 @@ function dl(s) {
     return s || "";
   }
 }
-
 function ft(s) {
   return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
 }
-
 function ensurePts(d, cid) {
   if (!d.points) d.points = {};
   if (!d.points[cid]) d.points[cid] = { balance: 0, history: [] };
   if (!d.points[cid].history) d.points[cid].history = [];
   return d;
 }
-
 // ═══ APP ═══
 export default function App() {
   // Refresh date every render
   var _t = getToday();
   NOW = _t.now; TD = _t.td; TDI = _t.tdi;
-
   const [data, setData] = useState(mkData);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState(null); // null = login screen, "parent" or child id
   const dataRef = useRef(data);
   const savingRef = useRef(false);
-
   // Keep dataRef in sync
   useEffect(function () { dataRef.current = data; }, [data]);
-
   // Parse and normalize stored data
   function parseStored(raw) {
     try {
@@ -140,7 +120,6 @@ export default function App() {
     } catch (e) { /* ignore */ }
     return null;
   }
-
   // Reload from shared storage
   var reload = useCallback(async function () {
     if (savingRef.current) return;
@@ -152,7 +131,6 @@ export default function App() {
       }
     } catch (e) { /* ignore */ }
   }, []);
-
   // Initial load
   useEffect(function () {
     var ok = true;
@@ -169,7 +147,6 @@ export default function App() {
     load();
     return function () { ok = false; };
   }, []);
-
   // Poll for updates every 15 seconds + reload on visibility change
   useEffect(function () {
     var iv = setInterval(reload, 15000);
@@ -186,7 +163,6 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [reload]);
-
   var save = useCallback(async function (d) {
     savingRef.current = true;
     setData(d);
@@ -195,7 +171,6 @@ export default function App() {
     } catch (e) { /* ignore */ }
     savingRef.current = false;
   }, []);
-
   // Login screen
   if (!ready) {
     return (
@@ -207,7 +182,6 @@ export default function App() {
       </div>
     );
   }
-
   if (!user) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "linear-gradient(135deg, #F7F6F3, #EDE9FF)", fontFamily: "'Zen Maru Gothic',sans-serif" }}>
@@ -230,23 +204,18 @@ export default function App() {
       </div>
     );
   }
-
   var isP = user === "parent";
   var sel = isP ? null : user;
-
   return <MainView data={data} save={save} isP={isP} fixedChild={sel} onLogout={function () { setUser(null); }} />;
 }
-
 // ═══ MAIN VIEW ═══
 function MainView(p) {
   var data = p.data, save = p.save, isP = p.isP, fixedChild = p.fixedChild, onLogout = p.onLogout;
   const [sel, setSel] = useState(fixedChild || "eishi");
   const [tab, setTab] = useState("home");
-
   var ch = CHILDREN.find(function (c) { return c.id === sel; }) || CHILDREN[0];
   var isM = ch.mode === "managed";
   var pts = (data.points[ch.id] && data.points[ch.id].balance) || 0;
-
   var navs = [
     { id: "home", icon: "🏠", l: "ホーム" },
   ];
@@ -255,17 +224,14 @@ function MainView(p) {
   if (isM) navs.push({ id: "review", icon: "📊", l: "ふりかえり" });
   if (isM) navs.push({ id: "tests", icon: "📝", l: "テスト" });
   if (isM) navs.push({ id: "rewards", icon: "🎁", l: "ごほうび" });
-
   return (
     <div style={S.app}>
       <style>{cssText}</style>
-
       {/* Logout + mode label */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px" }}>
         <button onClick={onLogout} style={{ background: "none", border: "none", fontSize: 12, color: "#999", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>← もどる</button>
         <span style={{ fontSize: 12, color: "#999", fontWeight: 600 }}>{isP ? "👩‍👧‍👦 お母さん" : ch.emoji + " " + ch.name}</span>
       </div>
-
       {/* Header */}
       <header style={{ ...S.header, background: "linear-gradient(135deg," + ch.color + "," + ch.color + "cc)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -276,7 +242,6 @@ function MainView(p) {
           {isM && <div style={S.badge}>⭐{pts}pt</div>}
         </div>
       </header>
-
       {/* Child tabs - only for parent */}
       {isP && (
         <div style={S.childBar}>
@@ -289,7 +254,6 @@ function MainView(p) {
           })}
         </div>
       )}
-
       {/* Main */}
       <main style={{ padding: "6px 12px", paddingBottom: 70 }}>
         {tab === "home" && <HomeTab ch={ch} data={data} save={save} isP={isP} setTab={setTab} />}
@@ -299,7 +263,6 @@ function MainView(p) {
         {tab === "tests" && isM && <TestsTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "rewards" && isM && <RewardsTab ch={ch} data={data} save={save} isP={isP} />}
       </main>
-
       {/* Nav */}
       <nav style={S.nav}>
         {navs.map(function (t) {
@@ -314,8 +277,6 @@ function MainView(p) {
     </div>
   );
 }
-
-
 function pageLabel(wb, numPages) {
   var start = (wb.donePages || 0) + 1;
   var end = Math.min(start + numPages - 1, wb.totalPages);
@@ -323,14 +284,12 @@ function pageLabel(wb, numPages) {
   if (start === end) return "P" + start;
   return "P" + start + "-P" + end;
 }
-
 function buildTodayPlan(ch, data) {
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD]) || {};
   var carryover = (data.carryover && data.carryover[ch.id]) || [];
   var plan = [];
   var dayOfYear = Math.floor((NOW - new Date(NOW.getFullYear(), 0, 0)) / 86400000);
-
   // Carryover items first
   carryover.forEach(function (ci) {
     plan.push({
@@ -339,10 +298,8 @@ function buildTodayPlan(ch, data) {
       done: !!todayDone["carry_" + ci.id], note: "きのうのつづき", isCarryover: true,
     });
   });
-
   var carryCount = carryover.length;
   var maxNew = Math.max(2, 4 - carryCount);
-
   if (ch.id === "daigo") {
     var tc = 0;
     if (tc < maxNew) {
@@ -451,16 +408,12 @@ function buildTodayPlan(ch, data) {
       }
     }
   }
-
   var tasks = Object.values(data.tasks[ch.id] || {});
   tasks.filter(function (t) { return t.date === TD && !t.done; }).forEach(function (t) {
     plan.push({ id: "today_task_" + t.id, label: t.title, subject: t.subject || "", time: "", taskId: t.id, action: "task", emoji: "📝", done: false });
   });
-
   return plan;
 }
-
-
 function HomeTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP, setTab = p.setTab;
   var isM = ch.mode === "managed";
@@ -469,32 +422,26 @@ function HomeTab(p) {
   var todayStudySec = logs.reduce(function (s, l) { return s + l.seconds; }, 0);
   var studyMin = Math.floor(todayStudySec / 60);
   var timeLimit = ch.id === "eishi" ? 50 : 0; // 50min limit for eishi
-
   // Build today's plan from workbooks
   var plan = isM ? buildTodayPlan(ch, data) : [];
   var donePlanCount = plan.filter(function (t) { return t.done; }).length;
   var pendingPlan = plan.filter(function (t) { return !t.done; });
   var donePlan = plan.filter(function (t) { return t.done; });
-
   // Manual tasks (for self-managed / non-workbook)
   var tasks = Object.values(data.tasks[ch.id] || {});
   var manualToday = tasks.filter(function (t) { return t.date === TD && !t.done; });
   var manualDoneN = tasks.filter(function (t) { return t.done && t.doneDate === TD; }).length;
-
   var totalRemain = pendingPlan.length + (ch.mode === "self" ? manualToday.length : 0);
   var totalDone = donePlanCount + manualDoneN;
-
   var checkPlanItem = function (item) {
     var d = clone(data);
     if (!d.todayChecks) d.todayChecks = {};
     if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
     if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
     if (!d.carryover) d.carryover = {};
-
     var isPartial = !!item._partial;
     var pagesAdvanced = item.pages || 0;
     if (isPartial) pagesAdvanced = Math.max(1, Math.floor(pagesAdvanced / 2)); // partial = advance half
-
     var checkKey = "";
     if (item.action === "unit") {
       checkKey = "chal_" + item.wbId;
@@ -522,9 +469,7 @@ function HomeTab(p) {
         d.tasks[ch.id][item.taskId].doneDate = TD;
       }
     }
-
     d.todayChecks[ch.id][TD][checkKey] = true;
-
     // If partial, add remaining to carryover for tomorrow
     if (isPartial && (item.action === "pages" || item.action === "pit_pages")) {
       var remainPages = (item.pages || 2) - pagesAdvanced;
@@ -554,13 +499,11 @@ function HomeTab(p) {
         d.carryover[ch.id] = d.carryover[ch.id].filter(function (c) { return ("carry_" + c.id) !== item.id; });
       }
     }
-
     // Clear timer data if requested (完了・途中完了時、save競合を防ぐため同じdで処理)
     if (item._clearTimerKey) {
       if (!d._timers) d._timers = {};
       delete d._timers[item._clearTimerKey];
     }
-
     // Save elapsed time
     if (item._elapsed && item._elapsed > 0) {
       d.todayChecks[ch.id][TD]["time_" + item.id] = item._elapsed;
@@ -568,7 +511,6 @@ function HomeTab(p) {
       if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
       d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: item._elapsed, title: item.label + (isPartial ? "（途中まで）" : ""), subject: item.subject || "" });
     }
-
     // Award points (configurable)
     ensurePts(d, ch.id);
     var _pc = d._pointConfig || {};
@@ -581,10 +523,8 @@ function HomeTab(p) {
     else { ptAmt = _pc.taskDone || 1; }
     d.points[ch.id].balance += ptAmt;
     d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + (isPartial ? " 途中まで" : " 完了"), date: TD, id: "tp" + Date.now() });
-
     save(d);
   };
-
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       {/* Stats */}
@@ -609,12 +549,10 @@ function HomeTab(p) {
           </div>
         )}
       </div>
-
       {/* TODAY'S PLAN — the main feature */}
       {isM && plan.length > 0 && (
         <TodayPlanCard ch={ch} data={data} save={save} isP={isP} plan={plan} pendingPlan={pendingPlan} donePlan={donePlan} totalRemain={totalRemain} timeLimit={timeLimit} studyMin={studyMin} checkPlanItem={checkPlanItem} />
       )}
-
       {/* Manual tasks for today (all modes) */}
       {ch.mode === "self" && manualToday.length > 0 && (
         <div style={S.card}>
@@ -624,7 +562,6 @@ function HomeTab(p) {
           })}
         </div>
       )}
-
       {/* Workbook progress on home */}
       {isM && (data.workbooks && data.workbooks[ch.id] || []).length > 0 && (
         <div style={S.card}>
@@ -657,7 +594,6 @@ function HomeTab(p) {
           })}
         </div>
       )}
-
       {totalRemain === 0 && totalDone === 0 && plan.length === 0 && (
         <div style={{ textAlign: "center", padding: 30, color: "#bbb" }}>
           <div style={{ fontSize: 36 }}>{ch.emoji}</div>
@@ -667,13 +603,11 @@ function HomeTab(p) {
     </div>
   );
 }
-
 // ═══ TODAY PLAN CARD with parent editing ═══
 function TodayPlanCard(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   var plan = p.plan, pendingPlan = p.pendingPlan, donePlan = p.donePlan;
   var totalRemain = p.totalRemain, timeLimit = p.timeLimit, studyMin = p.studyMin, checkPlanItem = p.checkPlanItem;
-
   const [editing, setEditing] = useState(false);
   const [addLabel, setAddLabel] = useState("");
   const [addSubj, setAddSubj] = useState(ch.subjects[0] || "");
@@ -682,20 +616,16 @@ function TodayPlanCard(p) {
   const [kanjiInput, setKanjiInput] = useState("");
   const [showKanji, setShowKanji] = useState(false);
   const [dayOffset, setDayOffset] = useState(0); // 0=today, 1=tomorrow, etc.
-
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
-
   // Target date for editing
   var targetDate = new Date(NOW);
   targetDate.setDate(targetDate.getDate() + dayOffset);
   var targetTD = targetDate.getFullYear() + "-" + String(targetDate.getMonth() + 1).padStart(2, "0") + "-" + String(targetDate.getDate()).padStart(2, "0");
   var isToday = dayOffset === 0;
   var dayLabel = isToday ? "今日" : dayOffset === 1 ? "明日" : (targetDate.getMonth() + 1) + "/" + targetDate.getDate();
-
   // Get hidden items (parent removed for target date)
   var hidden = (data.todayOverrides && data.todayOverrides[ch.id] && data.todayOverrides[ch.id][targetTD] && data.todayOverrides[ch.id][targetTD].hidden) || [];
   var added = (data.todayOverrides && data.todayOverrides[ch.id] && data.todayOverrides[ch.id][targetTD] && data.todayOverrides[ch.id][targetTD].added) || [];
-
   var visiblePending = pendingPlan.filter(function (item) { return hidden.indexOf(item.id) === -1; });
   var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][targetTD]) || {};
   var addedItems = added.map(function (a) {
@@ -704,24 +634,20 @@ function TodayPlanCard(p) {
   var addedDone = added.map(function (a) {
     return { id: a.id, label: a.label, done: !!todayDone["custom_" + a.id] };
   }).filter(function (a) { return a.done; });
-
   var allPending = isToday ? visiblePending.concat(addedItems) : addedItems;
   var allDone = isToday ? donePlan.concat(addedDone) : addedDone;
   var actualRemain = allPending.length;
-
   var ensureOverrides = function (d, date) {
     if (!d.todayOverrides) d.todayOverrides = {};
     if (!d.todayOverrides[ch.id]) d.todayOverrides[ch.id] = {};
     if (!d.todayOverrides[ch.id][date]) d.todayOverrides[ch.id][date] = { hidden: [], added: [] };
   };
-
   var hideItem = function (itemId) {
     var d = clone(data);
     ensureOverrides(d, targetTD);
     d.todayOverrides[ch.id][targetTD].hidden.push(itemId);
     save(d);
   };
-
   var unhideItem = function (itemId) {
     var d = clone(data);
     if (d.todayOverrides && d.todayOverrides[ch.id] && d.todayOverrides[ch.id][targetTD]) {
@@ -729,7 +655,6 @@ function TodayPlanCard(p) {
     }
     save(d);
   };
-
   var addCustom = function () {
     if (!addLabel.trim() && !addWbId) return;
     var d = clone(data);
@@ -748,19 +673,24 @@ function TodayPlanCard(p) {
     setAddLabel("");
     setAddWbId("");
   };
-
+  // 漢字練習を1つのタスクとして追加（2026-05-16 修正：以前は1文字ずつ別タスクに分解されていた）
   var addKanji = function () {
     if (!kanjiInput.trim()) return;
     var chars = kanjiInput.trim().split("").filter(function (c) { return c.trim(); });
+    if (chars.length === 0) return;
     var d = clone(data);
     ensureOverrides(d, targetTD);
-    chars.forEach(function (c) {
-      d.todayOverrides[ch.id][targetTD].added.push({ id: "kanji" + Date.now() + Math.random(), label: "「" + c + "」をノートに1行書く", subject: "国語", time: "2分", emoji: "✏️" });
+    var kanjiStr = chars.join("");
+    d.todayOverrides[ch.id][targetTD].added.push({
+      id: "kanji" + Date.now() + Math.random(),
+      label: "漢字練習：「" + kanjiStr + "」をノートに1行ずつ書く",
+      subject: "国語",
+      time: (chars.length * 2) + "分",
+      emoji: "✏️"
     });
     save(d);
     setKanjiInput("");
   };
-
   var removeCustom = function (custId) {
     var d = clone(data);
     if (d.todayOverrides && d.todayOverrides[ch.id] && d.todayOverrides[ch.id][targetTD]) {
@@ -768,7 +698,6 @@ function TodayPlanCard(p) {
     }
     save(d);
   };
-
   var checkCustom = function (item) {
     var d = clone(data);
     if (!d.todayChecks) d.todayChecks = {};
@@ -799,7 +728,6 @@ function TodayPlanCard(p) {
     }
     save(d);
   };
-
   return (
     <div style={S.card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -810,7 +738,6 @@ function TodayPlanCard(p) {
           </button>
         )}
       </div>
-
       {/* Day selector (edit mode) */}
       {isP && editing && (
         <div style={{ display: "flex", gap: 6, marginBottom: 10, overflowX: "auto" }}>
@@ -824,26 +751,22 @@ function TodayPlanCard(p) {
           })}
         </div>
       )}
-
       {timeLimit > 0 && studyMin >= timeLimit && actualRemain > 0 && isToday && (
         <div style={{ background: "#FFF3E0", borderRadius: 10, padding: 10, marginBottom: 10, fontSize: 12, color: "#E65100" }}>
           ⏰ 今日は{timeLimit}分がんばりました！残りのタスクは明日やろう。
         </div>
       )}
-
       {actualRemain === 0 && allDone.length > 0 && isToday && (
         <div style={{ textAlign: "center", padding: 16 }}>
           <div style={{ fontSize: 40 }}>🎉</div>
           <div style={{ fontSize: 15, fontWeight: 800, color: "#4CAF50", marginTop: 6 }}>今日のぶん、ぜんぶ終わったよ！</div>
         </div>
       )}
-
       {!isToday && !editing && actualRemain === 0 && (
         <div style={{ textAlign: "center", padding: 16, color: "#ccc" }}>
           <div style={{ fontSize: 13 }}>{dayLabel}の予定はまだありません</div>
         </div>
       )}
-
       {/* Pending items */}
       {allPending.map(function (item) {
         if (editing) {
@@ -869,7 +792,6 @@ function TodayPlanCard(p) {
         }
         return <PlanItem key={item.id} item={item} ch={ch} data={data} save={save} checkPlanItem={checkPlanItem} />;
       })}
-
       {/* Hidden items (show in edit mode) */}
       {editing && isToday && hidden.length > 0 && (
         <div style={{ marginTop: 8 }}>
@@ -886,7 +808,6 @@ function TodayPlanCard(p) {
           })}
         </div>
       )}
-
       {/* Add custom task (edit mode) */}
       {editing && (
         <div style={{ marginTop: 10, padding: 10, background: "#f9f9f9", borderRadius: 10 }}>
@@ -925,7 +846,6 @@ function TodayPlanCard(p) {
           )}
         </div>
       )}
-
       {/* Kanji practice quick-add (parent mode, always visible) */}
       {isP && !editing && isToday && (
         <div style={{ marginTop: 8 }}>
@@ -935,18 +855,17 @@ function TodayPlanCard(p) {
             </button>
           ) : (
             <div style={{ padding: 10, background: "#F3E5F5", borderRadius: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ 間違えた漢字を入力（まとめて入力OK）</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ 練習したい漢字を入力</div>
               <div style={{ display: "flex", gap: 6 }}>
                 <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 森林海" style={{ ...S.input, fontSize: 18, letterSpacing: 4, textAlign: "center" }} />
                 <button onClick={addKanji} style={{ ...S.smBtn, background: "#9C27B0", color: "#fff", whiteSpace: "nowrap" }}>追加</button>
                 <button onClick={function () { setShowKanji(false); setKanjiInput(""); }} style={{ ...S.smBtn, background: "#eee", color: "#999" }}>✕</button>
               </div>
-              <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>漢字を入力すると、1文字ずつ「ノートに1行書く」タスクが追加されます</div>
+              <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>入力した漢字をまとめて1つの「漢字練習」タスクとして追加します</div>
             </div>
           )}
         </div>
       )}
-
       {/* Done items */}
       {allDone.length > 0 && !editing && isToday && (
         <div style={{ marginTop: 8 }}>
@@ -968,25 +887,20 @@ function TodayPlanCard(p) {
     </div>
   );
 }
-
 // ═══ PLAN ITEM with Start/Pause/Resume/Complete/Partial/Stop ═══
 // Timer state persisted in data._timers so switching child tabs doesn't lose it
 function PlanItem(p) {
   var item = p.item, ch = p.ch, data = p.data, save = p.save, checkPlanItem = p.checkPlanItem;
   var timerKey = ch.id + "_" + item.id;
   var stored = (data._timers && data._timers[timerKey]) || null;
-
   const [display, setDisplay] = useState(0);
   var ivRef = useRef(null);
-
   var running = stored && stored.running;
   var paused = stored && !stored.running && stored.base > 0;
-
   var calcElapsed = function () {
     if (!stored) return 0;
     return (stored.base || 0) + (stored.running && stored.startedAt ? Math.floor((Date.now() - stored.startedAt) / 1000) : 0);
   };
-
   useEffect(function () {
     setDisplay(calcElapsed());
     if (running) {
@@ -996,7 +910,6 @@ function PlanItem(p) {
     }
     return function () { if (ivRef.current) { clearInterval(ivRef.current); ivRef.current = null; } };
   }, [running, stored && stored.startedAt, stored && stored.base]);
-
   useEffect(function () {
     function onVis() {
       if (document.visibilityState === "visible") {
@@ -1010,33 +923,27 @@ function PlanItem(p) {
     document.addEventListener("visibilitychange", onVis);
     return function () { document.removeEventListener("visibilitychange", onVis); };
   }, [running, stored && stored.startedAt, stored && stored.base]);
-
   var saveTimer = function (obj) {
     var d = clone(data);
     if (!d._timers) d._timers = {};
     d._timers[timerKey] = obj;
     save(d);
   };
-
   var clearTimerData = function (d) {
     if (!d._timers) d._timers = {};
     delete d._timers[timerKey];
     return d;
   };
-
   var handleStart = function () {
     saveTimer({ running: true, startedAt: Date.now(), base: 0 });
   };
-
   var handlePause = function () {
     var elapsed = calcElapsed();
     saveTimer({ running: false, startedAt: null, base: elapsed });
   };
-
   var handleResume = function () {
     saveTimer({ running: true, startedAt: Date.now(), base: stored ? stored.base || 0 : 0 });
   };
-
   var handleComplete = function () {
     var elapsed = calcElapsed();
     // タイマークリア情報をitemに乗せてcheckPlanItemに渡す
@@ -1044,13 +951,11 @@ function PlanItem(p) {
     var itemWithTime = Object.assign({}, item, { _elapsed: elapsed, _clearTimerKey: timerKey });
     checkPlanItem(itemWithTime);
   };
-
   var handlePartial = function () {
     var elapsed = calcElapsed();
     var itemWithTime = Object.assign({}, item, { _elapsed: elapsed, _partial: true, _clearTimerKey: timerKey });
     checkPlanItem(itemWithTime);
   };
-
   var handleQuit = function () {
     var elapsed = calcElapsed();
     var d = clearTimerData(clone(data));
@@ -1061,10 +966,8 @@ function PlanItem(p) {
     }
     save(d);
   };
-
   var hasPages = item.action === "pages" || item.action === "pit_pages";
   var started = running || paused;
-
   return (
     <div style={{ padding: "10px 0", borderBottom: "1px solid #f3f3f3" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1083,7 +986,6 @@ function PlanItem(p) {
           </button>
         )}
       </div>
-
       {/* Timer & Controls */}
       {started && (
         <div style={{ marginTop: 8, padding: 12, background: running ? ch.color + "08" : "#f5f5f5", borderRadius: 10, border: running ? "2px solid " + ch.color + "25" : "2px solid #e0e0e0", textAlign: "center" }}>
@@ -1116,7 +1018,6 @@ function PlanItem(p) {
     </div>
   );
 }
-
 // ═══ TIMER ═══
 function Timer(p) {
   var ch = p.ch, data = p.data, save = p.save, task = p.task;
@@ -1126,11 +1027,9 @@ function Timer(p) {
   var startRef = useRef(null);
   var baseRef = useRef(0);
   var ivRef = useRef(null);
-
   var calcElapsed = function () {
     return baseRef.current + (startRef.current ? Math.floor((Date.now() - startRef.current) / 1000) : 0);
   };
-
   useEffect(function () {
     if (on) {
       startRef.current = Date.now();
@@ -1146,7 +1045,6 @@ function Timer(p) {
     }
     return function () { if (ivRef.current) { clearInterval(ivRef.current); ivRef.current = null; } };
   }, [on]);
-
   useEffect(function () {
     function onVis() {
       if (document.visibilityState === "visible" && startRef.current) {
@@ -1158,7 +1056,6 @@ function Timer(p) {
     document.addEventListener("visibilitychange", onVis);
     return function () { document.removeEventListener("visibilitychange", onVis); };
   }, []);
-
   var stop = function () {
     var elapsed = calcElapsed();
     setOn(false);
@@ -1171,11 +1068,9 @@ function Timer(p) {
       setTimeout(function () { setSaved(false); }, 2000);
     }
   };
-
   var resetTimer = function () {
     baseRef.current = 0; startRef.current = null; setDisplay(0);
   };
-
   return (
     <div style={{ background: on ? ch.color + "10" : "#f9f9f9", borderRadius: 12, padding: 10, marginTop: 6, textAlign: "center" }}>
       <div style={{ fontSize: 10, color: "#888" }}>⏱️ タイマー</div>
@@ -1191,14 +1086,12 @@ function Timer(p) {
     </div>
   );
 }
-
 // ═══ TASK ITEM ═══
 function TItem(p) {
   var task = p.task, ch = p.ch, data = p.data, save = p.save, canDel = p.canDel;
   const [showT, setShowT] = useState(false);
   var isM = ch.mode === "managed";
   var pv = task.points || 1;
-
   var toggle = function () {
     var d = clone(data);
     if (!d.tasks[ch.id]) return;
@@ -1219,13 +1112,11 @@ function TItem(p) {
     }
     save(d);
   };
-
   var remove = function () {
     var d = clone(data);
     if (d.tasks[ch.id]) delete d.tasks[ch.id][task.id];
     save(d);
   };
-
   return (
     <div style={{ borderBottom: "1px solid #f3f3f3" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
@@ -1246,7 +1137,6 @@ function TItem(p) {
     </div>
   );
 }
-
 // ═══ TASKS TAB ═══
 function TasksTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
@@ -1258,11 +1148,9 @@ function TasksTab(p) {
   const [showFT, setShowFT] = useState(false);
   var isM = ch.mode === "managed";
   var canAdd = isP || ch.mode === "self";
-
   var tasks = Object.values(data.tasks[ch.id] || {});
   var pending = tasks.filter(function (t) { return !t.done; });
   var done = tasks.filter(function (t) { return t.done; });
-
   var add = function () {
     if (!title.trim()) return;
     var d = clone(data);
@@ -1275,10 +1163,8 @@ function TasksTab(p) {
     setPts("1");
     setShow(false);
   };
-
   var logs = (data.studyLogs[ch.id] || []).filter(function (l) { return l.date === TD; });
   var studySec = logs.reduce(function (s, l) { return s + l.seconds; }, 0);
-
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -1288,17 +1174,13 @@ function TasksTab(p) {
           {canAdd && <button onClick={function () { setShow(!show); }} style={{ ...S.addBtn, background: ch.color }}>{show ? "✕" : "＋ 追加"}</button>}
         </div>
       </div>
-
       {showFT && <div style={S.card}><Timer ch={ch} data={data} save={save} task={null} /></div>}
-
       {studySec > 0 && (
         <div style={{ ...S.card, background: "#E3F2FD", padding: 10, fontSize: 12, color: "#1565C0", fontWeight: 600 }}>
           📊 今日の学習：{Math.floor(studySec / 60)}分{studySec % 60}秒
         </div>
       )}
-
       {!isP && isM && <div style={{ background: "#FFFDE7", borderRadius: 12, padding: 10, marginBottom: 10, fontSize: 13, color: "#8D6E00" }}>✅ チェック → ポイントGET！ ⏱️でタイマーも使えるよ</div>}
-
       {show && (
         <div style={{ ...S.card, animation: "slideUp .2s ease" }}>
           <input value={title} onChange={function (e) { setTitle(e.target.value); }} placeholder="タスク内容" style={S.input} />
@@ -1317,7 +1199,6 @@ function TasksTab(p) {
           <button onClick={add} style={{ ...S.subBtn, background: ch.color, marginTop: 10 }}>登録</button>
         </div>
       )}
-
       {pending.length > 0 && (
         <div style={S.card}>
           <div style={S.cardTitle}>📋 未完了（{pending.length}）</div>
@@ -1333,7 +1214,6 @@ function TasksTab(p) {
     </div>
   );
 }
-
 // ═══ WORKBOOKS TAB ═══
 function WorkbooksTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
@@ -1351,7 +1231,6 @@ function WorkbooksTab(p) {
   const [pageMin, setPageMin] = useState("3");
   const [pageDaily, setPageDaily] = useState("");
   const [pageNote, setPageNote] = useState("");
-
   var markUnit = function (wbId) {
     var wb = wbs.find(function (w) { return w.id === wbId; });
     if (!wb) return;
@@ -1363,7 +1242,6 @@ function WorkbooksTab(p) {
     d.points[ch.id].history.push({ type: "earn", amount: 1, reason: wb.name + " 第" + target.doneUnits + "回完了", date: TD, id: "wb" + Date.now() });
     save(d);
   };
-
   var markTest = function (wbId) {
     var d = clone(data);
     var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
@@ -1373,7 +1251,6 @@ function WorkbooksTab(p) {
     d.points[ch.id].history.push({ type: "earn", amount: 2, reason: target.name + " テスト完了", date: TD, id: "wbt" + Date.now() });
     save(d);
   };
-
   var markPages = function (wbId, pages) {
     var d = clone(data);
     var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
@@ -1384,20 +1261,17 @@ function WorkbooksTab(p) {
     d.points[ch.id].history.push({ type: "earn", amount: 1, reason: target.name + " " + pages + "p完了", date: TD, id: "wbp" + Date.now() });
     save(d);
   };
-
   var deleteWb = function (wbId) {
     var d = clone(data);
     d.workbooks[ch.id] = (d.workbooks[ch.id] || []).filter(function (w) { return w.id !== wbId; });
     save(d);
   };
-
   var resetChallenge = function (wbId) {
     var d = clone(data);
     var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
     if (target) { target.doneUnits = 0; target.testDone = false; }
     save(d);
   };
-
   var addChallenge = function () {
     if (!chalName.trim()) return;
     var d = clone(data);
@@ -1406,7 +1280,6 @@ function WorkbooksTab(p) {
     save(d);
     setChalName(""); setChalUnits("5"); setChalMin("15"); setChalHasTest(true); setShowAddChal(false);
   };
-
   var addPageBook = function () {
     if (!pageName.trim() || !pageTotal) return;
     var d = clone(data);
@@ -1418,21 +1291,17 @@ function WorkbooksTab(p) {
     save(d);
     setPageName(""); setPageTotal(""); setPageMin("3"); setPageDaily(""); setPageNote(""); setShowAddPage(false);
   };
-
   var challenges = wbs.filter(function (w) { return w.type === "challenge"; });
   var pageBooks = wbs.filter(function (w) { return w.type === "pages"; });
-
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 12 }}>{ch.emoji} {ch.name}の問題集</h2>
-
       {/* Challenge section */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <div style={S.cardTitle}>📕 チャレンジ</div>
           {isP && <button onClick={function () { setShowAddChal(!showAddChal); }} style={{ ...S.addBtn, background: ch.color }}>{showAddChal ? "✕" : "＋ 追加"}</button>}
         </div>
-
         {showAddChal && (
           <div style={{ padding: 10, background: "#f9f9f9", borderRadius: 10, marginBottom: 10 }}>
             <input value={chalName} onChange={function (e) { setChalName(e.target.value); }} placeholder="名前（例：チャレンジ国語）" style={S.input} />
@@ -1448,7 +1317,6 @@ function WorkbooksTab(p) {
             <button onClick={addChallenge} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%", marginTop: 6, padding: 8 }}>追加</button>
           </div>
         )}
-
         {challenges.length > 0 ? challenges.map(function (wb) {
           var total = wb.totalUnits || 0;
           var done = wb.doneUnits || 0;
@@ -1478,14 +1346,12 @@ function WorkbooksTab(p) {
           );
         }) : <div style={{ fontSize: 12, color: "#ccc" }}>チャレンジはまだ登録されていません</div>}
       </div>
-
       {/* Page-based workbooks */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <div style={S.cardTitle}>📗 問題集</div>
           {isP && <button onClick={function () { setShowAddPage(!showAddPage); }} style={{ ...S.addBtn, background: ch.color }}>{showAddPage ? "✕" : "＋ 追加"}</button>}
         </div>
-
         {showAddPage && (
           <div style={{ padding: 10, background: "#f9f9f9", borderRadius: 10, marginBottom: 10 }}>
             <input value={pageName} onChange={function (e) { setPageName(e.target.value); }} placeholder="名前（例：漢字MAXドリル小4）" style={S.input} />
@@ -1501,7 +1367,6 @@ function WorkbooksTab(p) {
             <button onClick={addPageBook} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%", marginTop: 6, padding: 8 }}>追加</button>
           </div>
         )}
-
         {pageBooks.length > 0 ? pageBooks.map(function (wb) {
           var total = wb.totalPages || 0;
           var done = wb.donePages || 0;
@@ -1534,7 +1399,6 @@ function WorkbooksTab(p) {
     </div>
   );
 }
-
 // ═══ POINTS TAB (ポイント獲得) ═══
 function PointsTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
@@ -1548,10 +1412,8 @@ function PointsTab(p) {
   const [editName, setEditName] = useState("");
   const [editPts, setEditPts] = useState("");
   const [showPlanCfg, setShowPlanCfg] = useState(false);
-
   var cats = data.bonusCats || DEF_BONUS;
   var pts = (data.points[ch.id] && data.points[ch.id].balance) || 0;
-
   // Point config for today's plan items (stored per data, not per child)
   var planCfg = data._pointConfig || {};
   var planPts = {
@@ -1562,7 +1424,6 @@ function PointsTab(p) {
     smileDone: planCfg.smileDone || 1,
     partialDone: planCfg.partialDone || 1,
   };
-
   var award = function (cat) {
     var d = clone(data);
     ensurePts(d, ch.id);
@@ -1572,7 +1433,6 @@ function PointsTab(p) {
     setAwarded(cat.id);
     setTimeout(function () { setAwarded(null); }, 1500);
   };
-
   var addCat = function () {
     if (!name.trim()) return;
     var d = clone(data);
@@ -1585,20 +1445,17 @@ function PointsTab(p) {
     setEmj("⭐");
     setShowAdd(false);
   };
-
   var delCat = function (cid) {
     var d = clone(data);
     d.bonusCats = (d.bonusCats || []).filter(function (c) { return c.id !== cid; });
     save(d);
   };
-
   var startEdit = function (cat) {
     setEditId(cat.id);
     setEditEmj(cat.emoji);
     setEditName(cat.name);
     setEditPts(String(cat.points));
   };
-
   var saveEdit = function () {
     var d = clone(data);
     d.bonusCats = (d.bonusCats || []).map(function (c) {
@@ -1610,16 +1467,13 @@ function PointsTab(p) {
     save(d);
     setEditId(null);
   };
-
   var cancelEdit = function () { setEditId(null); };
-
   var savePlanCfg = function (key, val) {
     var d = clone(data);
     if (!d._pointConfig) d._pointConfig = {};
     d._pointConfig[key] = parseInt(val) || 1;
     save(d);
   };
-
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       {/* Current points display */}
@@ -1627,7 +1481,6 @@ function PointsTab(p) {
         <div style={{ fontSize: 13, color: "#888" }}>{ch.name}のポイント</div>
         <div style={{ fontSize: 36, fontWeight: 900, color: ch.color, margin: "4px 0" }}>⭐ {pts}</div>
       </div>
-
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, marginTop: 6 }}>
         <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>{ch.emoji} ポイントをもらう</h2>
         <div style={{ display: "flex", gap: 6 }}>
@@ -1635,11 +1488,9 @@ function PointsTab(p) {
           {isP && <button onClick={function () { setShowAdd(!showAdd); }} style={{ ...S.addBtn, background: ch.color }}>{showAdd ? "✕" : "＋"}</button>}
         </div>
       </div>
-
       <div style={{ ...S.card, background: ch.colorLight, textAlign: "center", padding: 12 }}>
         <div style={{ fontSize: 12, color: "#888" }}>🌟 勉強以外でもポイントがもらえるよ！</div>
       </div>
-
       {/* Plan point config */}
       {isP && showPlanCfg && (
         <div style={{ ...S.card, border: "2px solid " + ch.color + "30" }}>
@@ -1665,7 +1516,6 @@ function PointsTab(p) {
           })}
         </div>
       )}
-
       <div style={S.card}>
         <div style={S.cardTitle}>🏅 ボーナスポイント</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -1701,7 +1551,6 @@ function PointsTab(p) {
           })}
         </div>
       </div>
-
       {showAdd && (
         <div style={{ ...S.card, animation: "slideUp .2s ease" }}>
           <div style={{ display: "flex", gap: 6 }}>
@@ -1715,29 +1564,24 @@ function PointsTab(p) {
     </div>
   );
 }
-
 // ═══ REVIEW TAB ═══
 function ReviewTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   var logs = (data.studyLogs && data.studyLogs[ch.id]) || [];
   var checks = (data.todayChecks && data.todayChecks[ch.id]) || {};
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
-
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDay, setSelectedDay] = useState(null); // date string or null
   const [editLogId, setEditLogId] = useState(null);
   const [editMin, setEditMin] = useState("");
   const [editSec, setEditSec] = useState("");
-
   var viewDate = new Date(NOW.getFullYear(), NOW.getMonth() + monthOffset, 1);
   var viewYear = viewDate.getFullYear();
   var viewMonth = viewDate.getMonth();
   var viewMonthLabel = viewYear + "年" + (viewMonth + 1) + "月";
-
   var daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   var firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
   var startPad = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
-
   var monthDays = [];
   for (var i = 0; i < startPad; i++) monthDays.push(null);
   for (var d = 1; d <= daysInMonth; d++) {
@@ -1748,7 +1592,6 @@ function ReviewTab(p) {
     var doneCount = Object.keys(dayChecks).filter(function (k) { return k !== "_plan" && !k.startsWith("time_") && dayChecks[k] === true; }).length;
     monthDays.push({ date: ds, day: d, sec: daySec, count: doneCount, logs: dayLogs });
   }
-
   var monthLogs = logs.filter(function (l) {
     return l.date && l.date.startsWith(viewYear + "-" + String(viewMonth + 1).padStart(2, "0"));
   });
@@ -1760,10 +1603,8 @@ function ReviewTab(p) {
     monthTaskCount += Object.keys(dc).filter(function (k) { return k !== "_plan" && !k.startsWith("time_") && dc[k] === true; }).length;
   }
   var activeDays = monthDays.filter(function (d) { return d && (d.sec > 0 || d.count > 0); }).length;
-
   var canGoBack = monthOffset > -11;
   var canGoForward = monthOffset < 0;
-
   var weeklyData = [];
   var weekStart = 1;
   while (weekStart <= daysInMonth) {
@@ -1781,7 +1622,6 @@ function ReviewTab(p) {
     weekStart = weekEnd + 1;
   }
   var maxWeekSec = Math.max.apply(null, weeklyData.map(function (w) { return w.sec; }).concat([1]));
-
   // Day detail data
   var dayDetail = null;
   if (selectedDay) {
@@ -1791,13 +1631,11 @@ function ReviewTab(p) {
     var sdSec = sdLogs.reduce(function (s, l) { return s + l.seconds; }, 0);
     dayDetail = { date: selectedDay, logs: sdLogs, doneCount: sdDoneCount, totalSec: sdSec };
   }
-
   var startEditLog = function (log) {
     setEditLogId(log.id);
     setEditMin(String(Math.floor(log.seconds / 60)));
     setEditSec(String(log.seconds % 60));
   };
-
   var saveEditLog = function () {
     var newSec = (parseInt(editMin) || 0) * 60 + (parseInt(editSec) || 0);
     if (newSec < 0) newSec = 0;
@@ -1811,7 +1649,6 @@ function ReviewTab(p) {
     save(dd);
     setEditLogId(null);
   };
-
   var deleteLog = function (logId) {
     var dd = clone(data);
     if (dd.studyLogs && dd.studyLogs[ch.id]) {
@@ -1819,7 +1656,6 @@ function ReviewTab(p) {
     }
     save(dd);
   };
-
   var addManualLog = function () {
     var dd = clone(data);
     if (!dd.studyLogs) dd.studyLogs = {};
@@ -1827,25 +1663,21 @@ function ReviewTab(p) {
     dd.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: selectedDay, seconds: 0, title: "手動追加", subject: "" });
     save(dd);
   };
-
   // Parse selected day label
   var selectedDayLabel = "";
   if (selectedDay) {
     var sp = selectedDay.split("-");
     selectedDayLabel = parseInt(sp[1]) + "月" + parseInt(sp[2]) + "日";
   }
-
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 12 }}>{ch.emoji} ふりかえり</h2>
-
       {/* Month Navigation */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
         <button onClick={function () { if (canGoBack) { setMonthOffset(monthOffset - 1); setSelectedDay(null); } }} disabled={!canGoBack} style={{ background: "none", border: "none", fontSize: 20, cursor: canGoBack ? "pointer" : "default", opacity: canGoBack ? 1 : .3 }}>◀</button>
         <div style={{ fontSize: 16, fontWeight: 800, color: "#333", minWidth: 120, textAlign: "center" }}>{viewMonthLabel}</div>
         <button onClick={function () { if (canGoForward) { setMonthOffset(monthOffset + 1); setSelectedDay(null); } }} disabled={!canGoForward} style={{ background: "none", border: "none", fontSize: 20, cursor: canGoForward ? "pointer" : "default", opacity: canGoForward ? 1 : .3 }}>▶</button>
       </div>
-
       {/* Month Summary */}
       <div style={{ ...S.card, background: "linear-gradient(135deg," + ch.colorLight + ",white)" }}>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
@@ -1854,7 +1686,6 @@ function ReviewTab(p) {
           <MStat l="活動日数" v={activeDays + "/" + daysInMonth + "日"} c="#FF9800" />
         </div>
       </div>
-
       {/* Subject breakdown */}
       {(function () {
         var subjMap = {};
@@ -1888,7 +1719,6 @@ function ReviewTab(p) {
           </div>
         );
       })()}
-
       {/* Monthly Calendar */}
       <div style={S.card}>
         <div style={S.cardTitle}>📅 カレンダー（日付をタップで詳細）</div>
@@ -1915,7 +1745,6 @@ function ReviewTab(p) {
           })}
         </div>
       </div>
-
       {/* Day Detail */}
       {dayDetail && (
         <div style={{ ...S.card, border: "2px solid " + ch.color + "30", animation: "fadeIn .2s ease" }}>
@@ -1967,7 +1796,6 @@ function ReviewTab(p) {
           )}
         </div>
       )}
-
       {/* Weekly Bar Graph */}
       <div style={S.card}>
         <div style={S.cardTitle}>⏱️ 週ごとの学習時間</div>
@@ -1984,7 +1812,6 @@ function ReviewTab(p) {
           );
         })}
       </div>
-
       {/* Workbook Progress */}
       <div style={S.card}>
         <div style={S.cardTitle}>📖 問題集の進捗</div>
@@ -2023,7 +1850,6 @@ function ReviewTab(p) {
     </div>
   );
 }
-
 // ═══ REWARDS TAB (ごほうび) ═══
 function RewardsTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
@@ -2032,11 +1858,9 @@ function RewardsTab(p) {
   const [rC, setRC] = useState("10");
   const [rE, setRE] = useState("🎁");
   const [confirm, setConfirm] = useState(null);
-
   var pts = (data.points[ch.id] && data.points[ch.id].balance) || 0;
   var hist = (data.points[ch.id] && data.points[ch.id].history) || [];
   var rewards = data.rewards || DEF_REWARDS;
-
   var exchange = function (r) {
     if (pts < r.cost) return;
     var d = clone(data);
@@ -2046,7 +1870,6 @@ function RewardsTab(p) {
     save(d);
     setConfirm(null);
   };
-
   var addR = function () {
     if (!rN.trim()) return;
     var d = clone(data);
@@ -2059,20 +1882,17 @@ function RewardsTab(p) {
     setRE("🎁");
     setShowAdd(false);
   };
-
   var delR = function (rid) {
     var d = clone(data);
     d.rewards = (d.rewards || []).filter(function (r) { return r.id !== rid; });
     save(d);
   };
-
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       <div style={{ ...S.card, textAlign: "center", padding: 24, background: "linear-gradient(135deg," + ch.colorLight + ",#fff)" }}>
         <div style={{ fontSize: 13, color: "#888" }}>{ch.name}のポイント</div>
         <div style={{ fontSize: 40, fontWeight: 900, color: ch.color, margin: "6px 0" }}>⭐ {pts}</div>
       </div>
-
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <div style={S.cardTitle}>🏪 ごほうびショップ</div>
@@ -2110,7 +1930,6 @@ function RewardsTab(p) {
           })}
         </div>
       </div>
-
       {hist.length > 0 && (
         <div style={S.card}>
           <div style={S.cardTitle}>📜 履歴</div>
@@ -2127,7 +1946,6 @@ function RewardsTab(p) {
     </div>
   );
 }
-
 // ═══ TESTS TAB ═══
 function TestsTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
@@ -2137,7 +1955,6 @@ function TestsTab(p) {
   var testSubjects = tdata._subjects || defCfg.subjects;
   var hasRank = tdata._hasRank !== undefined ? tdata._hasRank : defCfg.hasRank;
   var records = tdata.records || [];
-
   const [showAdd, setShowAdd] = useState(false);
   const [addType, setAddType] = useState(testTypes[0]);
   const [addName, setAddName] = useState("");
@@ -2152,7 +1969,6 @@ function TestsTab(p) {
   const [newType, setNewType] = useState("");
   const [editId, setEditId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-
   // Ensure tests data structure exists
   function ensureTests(d) {
     if (!d.tests) d.tests = {};
@@ -2163,13 +1979,11 @@ function TestsTab(p) {
     if (!d.tests[ch.id].records) d.tests[ch.id].records = [];
     return d;
   }
-
   var setScore = function (subj, val) {
     var s = Object.assign({}, addScores);
     s[subj] = val;
     setAddScores(s);
   };
-
   var resetForm = function () {
     setAddType(testTypes[0]);
     setAddName("");
@@ -2179,7 +1993,6 @@ function TestsTab(p) {
     setAddRankTotal("");
     setEditId(null);
   };
-
   var saveRecord = function () {
     var scores = {};
     var total = 0;
@@ -2189,7 +2002,6 @@ function TestsTab(p) {
       if (!isNaN(v)) { scores[subj] = v; total += v; count++; }
     });
     if (count === 0) return;
-
     var rec = {
       id: editId || ("t" + Date.now()),
       type: addType,
@@ -2203,7 +2015,6 @@ function TestsTab(p) {
       rec.rank = parseInt(addRank) || null;
       rec.rankTotal = parseInt(addRankTotal) || null;
     }
-
     var d = ensureTests(clone(data));
     if (editId) {
       d.tests[ch.id].records = d.tests[ch.id].records.map(function (r) { return r.id === editId ? rec : r; });
@@ -2214,14 +2025,12 @@ function TestsTab(p) {
     resetForm();
     setShowAdd(false);
   };
-
   var delRecord = function (rid) {
     var d = ensureTests(clone(data));
     d.tests[ch.id].records = d.tests[ch.id].records.filter(function (r) { return r.id !== rid; });
     save(d);
     setDetail(null);
   };
-
   var startEdit = function (rec) {
     setEditId(rec.id);
     setAddType(rec.type);
@@ -2233,7 +2042,6 @@ function TestsTab(p) {
     setShowAdd(true);
     setDetail(null);
   };
-
   // ─── Config management ───
   var addSubject = function () {
     if (!newSubj.trim()) return;
@@ -2245,13 +2053,11 @@ function TestsTab(p) {
     setNewSubj("");
     setShowSubjAdd(false);
   };
-
   var delSubject = function (subj) {
     var d = ensureTests(clone(data));
     d.tests[ch.id]._subjects = d.tests[ch.id]._subjects.filter(function (s) { return s !== subj; });
     save(d);
   };
-
   var addTestType = function () {
     if (!newType.trim()) return;
     var d = ensureTests(clone(data));
@@ -2262,26 +2068,21 @@ function TestsTab(p) {
     setNewType("");
     setShowTypeAdd(false);
   };
-
   var delTestType = function (t) {
     var d = ensureTests(clone(data));
     d.tests[ch.id]._types = d.tests[ch.id]._types.filter(function (x) { return x !== t; });
     save(d);
   };
-
   var toggleRank = function () {
     var d = ensureTests(clone(data));
     d.tests[ch.id]._hasRank = !hasRank;
     save(d);
   };
-
   // Sort records newest first
   var sorted = records.slice().sort(function (a, b) { return b.date > a.date ? 1 : b.date < a.date ? -1 : 0; });
-
   // Group by type for chart
   var byType = {};
   testTypes.forEach(function (t) { byType[t] = sorted.filter(function (r) { return r.type === t; }).reverse(); });
-
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       {/* Header */}
@@ -2294,12 +2095,10 @@ function TestsTab(p) {
           </div>
         </div>
       </div>
-
       {/* Settings panel */}
       {isP && showSettings && (
         <div style={{ ...S.card, border: "2px solid " + ch.color + "30" }}>
           <div style={S.cardTitle}>⚙️ テスト設定（{ch.name}）</div>
-
           {/* Test types */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 6 }}>テストの種類</div>
@@ -2322,7 +2121,6 @@ function TestsTab(p) {
               </div>
             )}
           </div>
-
           {/* Subjects */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 6 }}>教科</div>
@@ -2345,7 +2143,6 @@ function TestsTab(p) {
               </div>
             )}
           </div>
-
           {/* Rank toggle */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>順位を記録する</div>
@@ -2353,7 +2150,6 @@ function TestsTab(p) {
           </div>
         </div>
       )}
-
       {/* Add/Edit form */}
       {showAdd && (
         <div style={{ ...S.card, border: "2px solid " + ch.color + "30" }}>
@@ -2401,7 +2197,6 @@ function TestsTab(p) {
           </div>
         </div>
       )}
-
       {/* Score trend per type */}
       {testTypes.map(function (type) {
         var typeRecs = byType[type] || [];
@@ -2430,7 +2225,6 @@ function TestsTab(p) {
           </div>
         );
       })}
-
       {/* Record list */}
       {sorted.length > 0 && (
         <div style={S.card}>
@@ -2478,7 +2272,6 @@ function TestsTab(p) {
           })}
         </div>
       )}
-
       {sorted.length === 0 && !showAdd && (
         <div style={{ ...S.card, textAlign: "center", padding: 30, color: "#ccc" }}>
           <div style={{ fontSize: 36 }}>📝</div>
@@ -2488,7 +2281,6 @@ function TestsTab(p) {
     </div>
   );
 }
-
 // ═══ SHARED ═══
 function MStat(p) {
   return (
@@ -2498,10 +2290,8 @@ function MStat(p) {
     </div>
   );
 }
-
 // ═══ CSS ═══
 var cssText = "@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap');*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Zen Maru Gothic',sans-serif}input,select,textarea,button{font-family:inherit}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}";
-
 // ═══ STYLES ═══
 var S = {
   app: { fontFamily: "'Zen Maru Gothic',sans-serif", background: "#F7F6F3", minHeight: "100vh", maxWidth: 480, margin: "0 auto", paddingBottom: 80 },
