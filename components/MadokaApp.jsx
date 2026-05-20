@@ -673,16 +673,57 @@ function TodayPlanCard(p) {
     }
     save(d);
   };
+  // 問題集からタスク追加。チャレンジ型は「第N回」or「テスト」を判定、ページ型はページ範囲（2026-05-19 改修：P1-PNaNバグ修正）
   var addCustom = function () {
     if (!addLabel.trim() && !addWbId) return;
     var d = clone(data);
     ensureOverrides(d, targetTD);
     if (addWbId) {
       var wb = wbs.find(function (w) { return w.id === addWbId; });
-      if (wb) {
+      if (!wb) { save(d); setAddLabel(""); setAddWbId(""); return; }
+      if (wb.type === "challenge") {
+        // チャレンジ型：次にやるべき課題を判定
+        var unitsLeft = (wb.doneUnits || 0) < (wb.totalUnits || 0);
+        var testLeft = !unitsLeft && wb.hasTest && !wb.testDone;
+        if (unitsLeft) {
+          var nextUnit = (wb.doneUnits || 0) + 1;
+          d.todayOverrides[ch.id][targetTD].added.push({
+            id: "cust" + Date.now(),
+            label: wb.name + " 第" + nextUnit + "回",
+            subject: wb.subject,
+            time: (wb.minPerUnit || 15) + "分",
+            wbId: wb.id,
+            wbAction: "unit",
+            emoji: "📕"
+          });
+        } else if (testLeft) {
+          d.todayOverrides[ch.id][targetTD].added.push({
+            id: "cust" + Date.now(),
+            label: wb.name + " テスト",
+            subject: wb.subject,
+            time: (wb.minPerUnit || 15) + "分",
+            wbId: wb.id,
+            wbAction: "test",
+            emoji: "📝"
+          });
+        } else {
+          // すべて完了済み → 何もしない
+          save(d); setAddLabel(""); setAddWbId(""); return;
+        }
+      } else {
+        // ページ型（既存挙動）
         var pages = parseInt(addWbPages) || 2;
         var label = wb.name + " " + pageLabel(wb, pages);
-        d.todayOverrides[ch.id][targetTD].added.push({ id: "cust" + Date.now(), label: label, subject: wb.subject, time: (pages * (wb.minPerPage || 3)) + "分", wbId: wb.id, pages: pages, emoji: "📖" });
+        d.todayOverrides[ch.id][targetTD].added.push({
+          id: "cust" + Date.now(),
+          label: label,
+          subject: wb.subject,
+          time: (pages * (wb.minPerPage || 3)) + "分",
+          wbId: wb.id,
+          wbAction: "pages",
+          pages: pages,
+          emoji: "📖"
+        });
       }
     } else {
       d.todayOverrides[ch.id][targetTD].added.push({ id: "cust" + Date.now(), label: addLabel.trim(), subject: addSubj, time: "", emoji: "✏️" });
@@ -724,9 +765,15 @@ function TodayPlanCard(p) {
     d.todayChecks[ch.id][targetTD]["custom_" + item.id] = true;
     ensurePts(d, ch.id);
     var _pc = d._pointConfig || {};
-    var ptAmt = _pc.taskDone || 1;
+    // 2026-05-19: wbActionに応じてポイントも切替（チャレンジ追加時に1pt固定にならないように）
+    var ptAmt;
+    if (item.wbAction === "test") { ptAmt = _pc.chalTest || 2; }
+    else if (item.wbAction === "unit") { ptAmt = _pc.chalUnit || 1; }
+    else if (item.wbAction === "pages" || item.wbAction === "pit_pages") { ptAmt = _pc.pageDone || 1; }
+    else { ptAmt = _pc.taskDone || 1; }
     var _ptHistoryId = "cp" + Date.now();
-    var _wbAdvance = (item.wbId && item.pages) ? { wbId: item.wbId, pages: item.pages } : undefined;
+    var _wbAdvance = (item.wbId && item.pages && (item.wbAction === "pages" || item.wbAction === "pit_pages" || !item.wbAction)) ? { wbId: item.wbId, pages: item.pages } : undefined;
+    var _wbChallengeUndo = (item.wbId && (item.wbAction === "unit" || item.wbAction === "test")) ? { wbId: item.wbId, wbAction: item.wbAction } : undefined;
     d.points[ch.id].balance += ptAmt;
     d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + " 完了", date: targetTD, id: _ptHistoryId });
     if (item._elapsed && item._elapsed > 0) {
@@ -744,6 +791,7 @@ function TodayPlanCard(p) {
           ptAwarded: ptAmt,
           ptHistoryId: _ptHistoryId,
           wbAdvance: _wbAdvance,
+          wbChallengeUndo: _wbChallengeUndo,
           isPartial: false,
           customTaskId: item.id,
         }
@@ -754,11 +802,17 @@ function TodayPlanCard(p) {
       if (!d._timers) d._timers = {};
       delete d._timers[item._clearTimerKey];
     }
-    // If linked to a workbook, also advance pages
-    if (item.wbId && item.pages) {
+    // 2026-05-19: 問題集を進める：wbAction に応じて分岐
+    if (item.wbId) {
       var target = (d.workbooks[ch.id] || []).find(function (w) { return w.id === item.wbId; });
       if (target) {
-        target.donePages = Math.min(target.totalPages, (target.donePages || 0) + item.pages);
+        if (item.wbAction === "unit") {
+          target.doneUnits = Math.min(target.totalUnits || 0, (target.doneUnits || 0) + 1);
+        } else if (item.wbAction === "test") {
+          target.testDone = true;
+        } else if (item.pages && (item.wbAction === "pages" || item.wbAction === "pit_pages" || !item.wbAction)) {
+          target.donePages = Math.min(target.totalPages || 0, (target.donePages || 0) + item.pages);
+        }
       }
     }
     save(d);
@@ -857,12 +911,35 @@ function TodayPlanCard(p) {
               <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 6 }}>
                 {wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}（{wb.subject}）</option>; })}
               </select>
-              {wbs.find(function (w) { return w.id === addWbId && w.type === "pages"; }) && (
-                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: "#666" }}>ページ数</span>
-                  <input type="number" value={addWbPages} onChange={function (e) { setAddWbPages(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
-                </div>
-              )}
+              {/* 2026-05-19: チャレンジ型は「第N回 or テスト」を表示、ページ型はページ数入力 */}
+              {(function () {
+                var selWb = wbs.find(function (w) { return w.id === addWbId; });
+                if (!selWb) return null;
+                if (selWb.type === "challenge") {
+                  var unitsLeft = (selWb.doneUnits || 0) < (selWb.totalUnits || 0);
+                  var testLeft = !unitsLeft && selWb.hasTest && !selWb.testDone;
+                  var nextMsg, isDone = false;
+                  if (unitsLeft) {
+                    nextMsg = "📕 次に追加されるのは「第" + ((selWb.doneUnits || 0) + 1) + "回」（" + (selWb.minPerUnit || 15) + "分）です";
+                  } else if (testLeft) {
+                    nextMsg = "📝 次に追加されるのは「テスト」（" + (selWb.minPerUnit || 15) + "分）です";
+                  } else {
+                    nextMsg = "✅ この問題集はすべて完了しています";
+                    isDone = true;
+                  }
+                  return (
+                    <div style={{ fontSize: 11, color: isDone ? "#aaa" : "#555", marginBottom: 6, padding: "8px 10px", background: isDone ? "#f5f5f5" : "#FFFDE7", borderRadius: 8, lineHeight: 1.5 }}>
+                      {nextMsg}
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: "#666" }}>ページ数</span>
+                    <input type="number" value={addWbPages} onChange={function (e) { setAddWbPages(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                  </div>
+                );
+              })()}
               <button onClick={addCustom} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%", padding: 8 }}>追加</button>
             </div>
           ) : (
@@ -1709,6 +1786,17 @@ function ReviewTab(p) {
         var wbBack = dd.workbooks[ch.id].find(function (w) { return w.id === m.wbAdvance.wbId; });
         if (wbBack) wbBack.donePages = Math.max(0, (wbBack.donePages || 0) - m.wbAdvance.pages);
       }
+      // 3b) チャレンジ完了の巻き戻し（2026-05-19 追加）
+      if (m.wbChallengeUndo && m.wbChallengeUndo.wbId && dd.workbooks && dd.workbooks[ch.id]) {
+        var wbCh = dd.workbooks[ch.id].find(function (w) { return w.id === m.wbChallengeUndo.wbId; });
+        if (wbCh) {
+          if (m.wbChallengeUndo.wbAction === "unit") {
+            wbCh.doneUnits = Math.max(0, (wbCh.doneUnits || 0) - 1);
+          } else if (m.wbChallengeUndo.wbAction === "test") {
+            wbCh.testDone = false;
+          }
+        }
+      }
       // 4) カスタムタスクなら todayOverrides.added からも削除
       if (m.checkKey && m.checkKey.indexOf("custom_") === 0) {
         var custId = m.checkKey.substring("custom_".length);
@@ -1778,6 +1866,17 @@ function ReviewTab(p) {
       if (l.meta && l.meta.wbAdvance && l.meta.wbAdvance.wbId && l.meta.wbAdvance.pages && dd.workbooks && dd.workbooks[ch.id]) {
         var wbR = dd.workbooks[ch.id].find(function (w) { return w.id === l.meta.wbAdvance.wbId; });
         if (wbR) wbR.donePages = Math.max(0, (wbR.donePages || 0) - l.meta.wbAdvance.pages);
+      }
+      // 2026-05-19 追加: チャレンジ完了の巻き戻し
+      if (l.meta && l.meta.wbChallengeUndo && l.meta.wbChallengeUndo.wbId && dd.workbooks && dd.workbooks[ch.id]) {
+        var wbChR = dd.workbooks[ch.id].find(function (w) { return w.id === l.meta.wbChallengeUndo.wbId; });
+        if (wbChR) {
+          if (l.meta.wbChallengeUndo.wbAction === "unit") {
+            wbChR.doneUnits = Math.max(0, (wbChR.doneUnits || 0) - 1);
+          } else if (l.meta.wbChallengeUndo.wbAction === "test") {
+            wbChR.testDone = false;
+          }
+        }
       }
       if (l.meta && l.meta.customTaskId && dd.tasks && dd.tasks[ch.id] && dd.tasks[ch.id][l.meta.customTaskId]) {
         dd.tasks[ch.id][l.meta.customTaskId].done = false;
