@@ -115,6 +115,7 @@ export default function App() {
         if (!p.workbooks.yukino) p.workbooks.yukino = YUKINO_WBS.map(function (w) { return Object.assign({}, w); });
         if (!p.todayChecks) p.todayChecks = {};
         if (!p.tests) p.tests = {};
+        if (!p._dailySelections) p._dailySelections = {}; // 2026-05-19 B案
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -284,6 +285,29 @@ function pageLabel(wb, numPages) {
   if (start === end) return "P" + start;
   return "P" + start + "-P" + end;
 }
+// 2026-05-19 B案: 前日に選ばれて未完だったworkbookを優先pick、なければ dayOfYear % length のローテーション
+// kind: "chal"（チャレンジ）or "pit"（ぴったり）。前日の _dailySelections と todayChecks を見る
+function pickWithPriority(candidates, ch, kind, dayOfYear, data) {
+  if (!candidates || !candidates.length) return null;
+  try {
+    var yDate = new Date(NOW);
+    yDate.setDate(yDate.getDate() - 1);
+    var yTD = yDate.getFullYear() + "-" + String(yDate.getMonth() + 1).padStart(2, "0") + "-" + String(yDate.getDate()).padStart(2, "0");
+    var ySel = (data._dailySelections && data._dailySelections[ch.id] && data._dailySelections[ch.id][yTD]) || {};
+    var yWbId = ySel[kind];
+    if (yWbId) {
+      var preferred = candidates.find(function (w) { return w.id === yWbId; });
+      if (preferred) {
+        var yChecks = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][yTD]) || {};
+        var doneKey = kind === "chal" ? "chal_" + preferred.id : "pit_" + preferred.id;
+        var testKey = kind === "chal" ? "chaltest_" + preferred.id : null;
+        var wasDone = !!yChecks[doneKey] || (testKey && !!yChecks[testKey]);
+        if (!wasDone) return preferred;
+      }
+    }
+  } catch (e) { /* fall through to rotation */ }
+  return candidates[dayOfYear % candidates.length];
+}
 function buildTodayPlan(ch, data) {
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD]) || {};
@@ -305,7 +329,7 @@ function buildTodayPlan(ch, data) {
     if (tc < maxNew) {
       var tchal = wbs.filter(function (w) { return w.type === "challenge" && (w.doneUnits < w.totalUnits || (w.hasTest && !w.testDone)); });
       if (tchal.length > 0) {
-        var tpick = tchal[dayOfYear % tchal.length];
+        var tpick = pickWithPriority(tchal, ch, "chal", dayOfYear, data);
         if (tpick.doneUnits < tpick.totalUnits) {
           plan.push({ id: "today_chal_" + tpick.id, label: tpick.name + " 第" + (tpick.doneUnits + 1) + "回", subject: tpick.subject, time: "15分", wbId: tpick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + tpick.id] });
           tc++;
@@ -325,7 +349,7 @@ function buildTodayPlan(ch, data) {
     if (tc < maxNew) {
       var tpit = wbs.filter(function (w) { return w.type === "pages" && !w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (tpit.length > 0) {
-        var tpp = tpit[dayOfYear % tpit.length];
+        var tpp = pickWithPriority(tpit, ch, "pit", dayOfYear, data);
         plan.push({ id: "today_pit_" + tpp.id, label: tpp.name + " " + pageLabel(tpp, 2), subject: tpp.subject, time: (2 * (tpp.minPerPage || 3)) + "分", wbId: tpp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + tpp.id] });
         tc++;
       }
@@ -336,7 +360,7 @@ function buildTodayPlan(ch, data) {
     if (nc < maxNew) {
       var chal = wbs.filter(function (w) { return w.type === "challenge" && (w.doneUnits < w.totalUnits || (w.hasTest && !w.testDone)); });
       if (chal.length > 0) {
-        var pick = chal[dayOfYear % chal.length];
+        var pick = pickWithPriority(chal, ch, "chal", dayOfYear, data);
         if (pick.doneUnits < pick.totalUnits) {
           plan.push({ id: "today_chal_" + pick.id, label: pick.name + " 第" + (pick.doneUnits + 1) + "回", subject: pick.subject, time: "15分", wbId: pick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + pick.id] });
           nc++;
@@ -356,7 +380,7 @@ function buildTodayPlan(ch, data) {
     if (nc < maxNew) {
       var pit = wbs.filter(function (w) { return w.type === "pages" && !w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (pit.length > 0) {
-        var pp = pit[dayOfYear % pit.length];
+        var pp = pickWithPriority(pit, ch, "pit", dayOfYear, data);
         plan.push({ id: "today_pit_" + pp.id, label: pp.name + " " + pageLabel(pp, 2), subject: pp.subject, time: (2 * (pp.minPerPage || 3)) + "分", wbId: pp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + pp.id] });
         nc++;
       }
@@ -375,14 +399,14 @@ function buildTodayPlan(ch, data) {
       var yk = yp.find(function (w) { return w.dailyPages; });
       var yo = yp.filter(function (w) { return !w.dailyPages; });
       if (yk) plan.push({ id: "today_kanji", label: yk.name + " " + pageLabel(yk, yk.dailyPages), subject: yk.subject, time: (yk.dailyPages * (yk.minPerPage || 3)) + "分", wbId: yk.id, action: "pages", pages: yk.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
-      if (yo.length > 0) { var ypp = yo[dayOfYear % yo.length]; plan.push({ id: "today_pit_" + ypp.id, label: ypp.name + " " + pageLabel(ypp, 2), subject: ypp.subject, time: (2 * (ypp.minPerPage || 3)) + "分", wbId: ypp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ypp.id] }); }
+      if (yo.length > 0) { var ypp = pickWithPriority(yo, ch, "pit", dayOfYear, data); plan.push({ id: "today_pit_" + ypp.id, label: ypp.name + " " + pageLabel(ypp, 2), subject: ypp.subject, time: (2 * (ypp.minPerPage || 3)) + "分", wbId: ypp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ypp.id] }); }
     }
   } else if (ch.id === "yukino") {
     var ync = 0;
     if (ync < maxNew) {
       var ynchal = wbs.filter(function (w) { return w.type === "challenge" && (w.doneUnits < w.totalUnits || (w.hasTest && !w.testDone)); });
       if (ynchal.length > 0) {
-        var ynpick = ynchal[dayOfYear % ynchal.length];
+        var ynpick = pickWithPriority(ynchal, ch, "chal", dayOfYear, data);
         if (ynpick.doneUnits < ynpick.totalUnits) {
           plan.push({ id: "today_chal_" + ynpick.id, label: ynpick.name + " 第" + (ynpick.doneUnits + 1) + "回", subject: ynpick.subject, time: "15分", wbId: ynpick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + ynpick.id] });
           ync++;
@@ -402,7 +426,7 @@ function buildTodayPlan(ch, data) {
     if (ync < maxNew) {
       var ynpit = wbs.filter(function (w) { return w.type === "pages" && !w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (ynpit.length > 0) {
-        var ynpp = ynpit[dayOfYear % ynpit.length];
+        var ynpp = pickWithPriority(ynpit, ch, "pit", dayOfYear, data);
         plan.push({ id: "today_pit_" + ynpp.id, label: ynpp.name + " " + pageLabel(ynpp, 2), subject: ynpp.subject, time: (2 * (ynpp.minPerPage || 3)) + "分", wbId: ynpp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ynpp.id] });
         ync++;
       }
@@ -427,6 +451,26 @@ function HomeTab(p) {
   var donePlanCount = plan.filter(function (t) { return t.done; }).length;
   var pendingPlan = plan.filter(function (t) { return !t.done; });
   var donePlan = plan.filter(function (t) { return t.done; });
+  // 2026-05-19 B案: 今日の自動選択（チャレンジ・ぴったり）を_dailySelectionsに保存
+  // 翌日のpickWithPriorityがこれを見て、未完なら同じ workbook を優先選択する
+  var _planKey = plan.map(function (it) { return it.id; }).join(",");
+  useEffect(function () {
+    if (!isM) return;
+    var todayChalItem = plan.find(function (it) { return (it.action === "unit" || it.action === "test") && !it.isCarryover; });
+    var todayPitItem = plan.find(function (it) { return it.action === "pit_pages" && !it.isCarryover; });
+    if (!todayChalItem && !todayPitItem) return;
+    var newSel = {
+      chal: todayChalItem ? todayChalItem.wbId : null,
+      pit: todayPitItem ? todayPitItem.wbId : null,
+    };
+    var existing = (data._dailySelections && data._dailySelections[ch.id] && data._dailySelections[ch.id][TD]) || {};
+    if (existing.chal === newSel.chal && existing.pit === newSel.pit) return;
+    var d = clone(data);
+    if (!d._dailySelections) d._dailySelections = {};
+    if (!d._dailySelections[ch.id]) d._dailySelections[ch.id] = {};
+    d._dailySelections[ch.id][TD] = newSel;
+    save(d);
+  }, [ch.id, _planKey]);
   // Manual tasks (for self-managed / non-workbook)
   var tasks = Object.values(data.tasks[ch.id] || {});
   var manualToday = tasks.filter(function (t) { return t.date === TD && !t.done; });
@@ -643,14 +687,45 @@ function TodayPlanCard(p) {
   var dayLabel = isToday ? "今日" : dayOffset === 1 ? "明日" : (targetDate.getMonth() + 1) + "/" + targetDate.getDate();
   // Get hidden items (parent removed for target date)
   var hidden = (data.todayOverrides && data.todayOverrides[ch.id] && data.todayOverrides[ch.id][targetTD] && data.todayOverrides[ch.id][targetTD].hidden) || [];
-  var added = (data.todayOverrides && data.todayOverrides[ch.id] && data.todayOverrides[ch.id][targetTD] && data.todayOverrides[ch.id][targetTD].added) || [];
+  // 2026-05-19: 過去14日のお母さん追加タスクで未完了のものを今日のプランに繰り越し表示
+  var collectAdded = function () {
+    if (!data.todayOverrides || !data.todayOverrides[ch.id]) return [];
+    var ovr = data.todayOverrides[ch.id];
+    var todayList = (ovr[targetTD] && ovr[targetTD].added) || [];
+    if (!isToday) return todayList;
+    var maxDays = 14;
+    var fromPast = [];
+    var pastDates = Object.keys(ovr).filter(function (d) { return d < targetTD; }).sort();
+    pastDates.forEach(function (d) {
+      var diff = Math.floor((new Date(targetTD) - new Date(d)) / 86400000);
+      if (diff > maxDays) return;
+      var dList = (ovr[d] && ovr[d].added) || [];
+      var dChecks = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][d]) || {};
+      dList.forEach(function (a) {
+        if (!dChecks["custom_" + a.id]) {
+          fromPast.push(Object.assign({}, a, { _fromDate: d }));
+        }
+      });
+    });
+    return fromPast.concat(todayList);
+  };
+  var added = collectAdded();
   var visiblePending = pendingPlan.filter(function (item) { return hidden.indexOf(item.id) === -1; });
   var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][targetTD]) || {};
   var addedItems = added.map(function (a) {
-    return { id: a.id, label: a.label, subject: a.subject || "", time: a.time || "", action: "custom", emoji: a.emoji || "✏️", done: !!todayDone["custom_" + a.id], wbId: a.wbId, pages: a.pages };
+    // 繰越タスクは元日付の done を見る（未完了なら今日に表示し続ける）
+    var isDone;
+    if (a._fromDate) {
+      var fromChecks = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][a._fromDate]) || {};
+      isDone = !!fromChecks["custom_" + a.id];
+    } else {
+      isDone = !!todayDone["custom_" + a.id];
+    }
+    return { id: a.id, label: a.label, subject: a.subject || "", time: a.time || "", action: "custom", emoji: a.emoji || "✏️", done: isDone, wbId: a.wbId, pages: a.pages, wbAction: a.wbAction, _fromDate: a._fromDate };
   }).filter(function (a) { return !a.done; });
+  // 「✅ 今日おわったもの」は今日のtodayChecksでチェックされたものを表示（繰越タスクが今日完了したら含まれる）
   var addedDone = added.map(function (a) {
-    return { id: a.id, label: a.label, done: !!todayDone["custom_" + a.id] };
+    return { id: a.id, label: a.label, done: !!todayDone["custom_" + a.id], _fromDate: a._fromDate };
   }).filter(function (a) { return a.done; });
   var allPending = isToday ? visiblePending.concat(addedItems) : addedItems;
   var allDone = isToday ? donePlan.concat(addedDone) : addedDone;
@@ -750,10 +825,12 @@ function TodayPlanCard(p) {
     save(d);
     setKanjiInput("");
   };
-  var removeCustom = function (custId) {
+  // 2026-05-19: 繰越タスクの削除は元日付の added から削除する必要があるため、_fromDate を受け取る
+  var removeCustom = function (custId, fromDate) {
+    var targetDateForRemove = fromDate || targetTD;
     var d = clone(data);
-    if (d.todayOverrides && d.todayOverrides[ch.id] && d.todayOverrides[ch.id][targetTD]) {
-      d.todayOverrides[ch.id][targetTD].added = d.todayOverrides[ch.id][targetTD].added.filter(function (a) { return a.id !== custId; });
+    if (d.todayOverrides && d.todayOverrides[ch.id] && d.todayOverrides[ch.id][targetDateForRemove]) {
+      d.todayOverrides[ch.id][targetDateForRemove].added = d.todayOverrides[ch.id][targetDateForRemove].added.filter(function (a) { return a.id !== custId; });
     }
     save(d);
   };
@@ -763,6 +840,11 @@ function TodayPlanCard(p) {
     if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
     if (!d.todayChecks[ch.id][targetTD]) d.todayChecks[ch.id][targetTD] = {};
     d.todayChecks[ch.id][targetTD]["custom_" + item.id] = true;
+    // 2026-05-19: 繰越タスクは元日付にも完了印を入れて、翌日から再度繰り越されないようにする
+    if (item._fromDate && item._fromDate !== targetTD) {
+      if (!d.todayChecks[ch.id][item._fromDate]) d.todayChecks[ch.id][item._fromDate] = {};
+      d.todayChecks[ch.id][item._fromDate]["custom_" + item.id] = true;
+    }
     ensurePts(d, ch.id);
     var _pc = d._pointConfig || {};
     // 2026-05-19: wbActionに応じてポイントも切替（チャレンジ追加時に1pt固定にならないように）
@@ -788,6 +870,7 @@ function TodayPlanCard(p) {
         meta: {
           checkKey: "custom_" + item.id,
           checkDate: targetTD,
+          carryoverFromDate: (item._fromDate && item._fromDate !== targetTD) ? item._fromDate : undefined,
           ptAwarded: ptAmt,
           ptHistoryId: _ptHistoryId,
           wbAdvance: _wbAdvance,
@@ -861,7 +944,7 @@ function TodayPlanCard(p) {
         if (editing) {
           return (
             <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f3f3f3" }}>
-              <button onClick={function () { if (item.action === "custom") removeCustom(item.id); else hideItem(item.id); }} style={{ width: 24, height: 24, borderRadius: 12, border: "none", background: "#FFEBEE", color: "#E53935", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+              <button onClick={function () { if (item.action === "custom") removeCustom(item.id, item._fromDate); else hideItem(item.id); }} style={{ width: 24, height: 24, borderRadius: 12, border: "none", background: "#FFEBEE", color: "#E53935", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
               <span style={{ fontSize: 16 }}>{item.emoji}</span>
               <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{item.label}</span>
             </div>
@@ -1091,6 +1174,14 @@ function PlanItem(p) {
             <span style={{ marginLeft: 4, color: "#FFB300", fontWeight: 700 }}>+{item.action === "test" ? 2 : 1}pt</span>
           </div>
           {item.note && <div style={{ fontSize: 10, color: "#FF9800", marginTop: 2 }}>📝 {item.note}</div>}
+          {item._fromDate && (function () {
+            try {
+              var fDay = new Date(item._fromDate);
+              var diff = Math.floor((new Date(TD) - fDay) / 86400000);
+              var lbl = diff === 1 ? "きのうから" : diff <= 7 ? diff + "日前から" : (fDay.getMonth() + 1) + "/" + fDay.getDate() + "から";
+              return <div style={{ fontSize: 10, color: "#FF9800", marginTop: 2, fontWeight: 700 }}>📌 {lbl}</div>;
+            } catch (e) { return null; }
+          })()}
         </div>
         {!started && (
           <button onClick={handleStart} style={{ padding: "6px 12px", borderRadius: 10, border: "none", background: ch.color, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
@@ -1774,6 +1865,10 @@ function ReviewTab(p) {
       if (m.checkDate && m.checkKey && dd.todayChecks && dd.todayChecks[ch.id] && dd.todayChecks[ch.id][m.checkDate]) {
         delete dd.todayChecks[ch.id][m.checkDate][m.checkKey];
       }
+      // 1b) 2026-05-19: 繰越タスクの場合は元日付の完了印も取消（翌日からまた繰越されるように）
+      if (m.carryoverFromDate && m.checkKey && dd.todayChecks && dd.todayChecks[ch.id] && dd.todayChecks[ch.id][m.carryoverFromDate]) {
+        delete dd.todayChecks[ch.id][m.carryoverFromDate][m.checkKey];
+      }
       // 2) ポイント取消
       if (m.ptAwarded && dd.points && dd.points[ch.id]) {
         dd.points[ch.id].balance = Math.max(0, dd.points[ch.id].balance - m.ptAwarded);
@@ -1881,6 +1976,10 @@ function ReviewTab(p) {
       if (l.meta && l.meta.customTaskId && dd.tasks && dd.tasks[ch.id] && dd.tasks[ch.id][l.meta.customTaskId]) {
         dd.tasks[ch.id][l.meta.customTaskId].done = false;
         dd.tasks[ch.id][l.meta.customTaskId].doneDate = null;
+      }
+      // 2026-05-19 追加: 繰越タスクの完了印は元日付からも削除
+      if (l.meta && l.meta.carryoverFromDate && l.meta.checkKey && dd.todayChecks && dd.todayChecks[ch.id] && dd.todayChecks[ch.id][l.meta.carryoverFromDate]) {
+        delete dd.todayChecks[ch.id][l.meta.carryoverFromDate][l.meta.checkKey];
       }
     });
     // studyLogs クリア
