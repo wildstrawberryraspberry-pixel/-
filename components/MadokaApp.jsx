@@ -1434,6 +1434,56 @@ function WorkbooksTab(p) {
   const [pageMin, setPageMin] = useState("3");
   const [pageDaily, setPageDaily] = useState("");
   const [pageNote, setPageNote] = useState("");
+  // 2026-05-19: ページ型問題集の donePages を直接編集（誤って進めた分の訂正用）
+  const [editPagesId, setEditPagesId] = useState(null);
+  const [editPagesVal, setEditPagesVal] = useState("");
+  // 2026-05-19: チャレンジ型問題集の doneUnits / testDone を直接編集
+  const [editUnitsId, setEditUnitsId] = useState(null);
+  const [editUnitsVal, setEditUnitsVal] = useState("");
+  const [editTestDoneVal, setEditTestDoneVal] = useState(false);
+  var startEditUnits = function (wb) {
+    setEditUnitsId(wb.id);
+    setEditUnitsVal(String(wb.doneUnits || 0));
+    setEditTestDoneVal(!!wb.testDone);
+  };
+  var cancelEditUnits = function () {
+    setEditUnitsId(null);
+    setEditUnitsVal("");
+    setEditTestDoneVal(false);
+  };
+  var saveEditUnits = function (wbId) {
+    var n = parseInt(editUnitsVal);
+    if (isNaN(n)) { cancelEditUnits(); return; }
+    var d = clone(data);
+    var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
+    if (target) {
+      var maxU = target.totalUnits || 0;
+      target.doneUnits = Math.min(maxU, Math.max(0, n));
+      if (target.hasTest) target.testDone = !!editTestDoneVal;
+    }
+    save(d);
+    cancelEditUnits();
+  };
+  var startEditPages = function (wb) {
+    setEditPagesId(wb.id);
+    setEditPagesVal(String(wb.donePages || 0));
+  };
+  var cancelEditPages = function () {
+    setEditPagesId(null);
+    setEditPagesVal("");
+  };
+  var saveEditPages = function (wbId) {
+    var n = parseInt(editPagesVal);
+    if (isNaN(n)) { cancelEditPages(); return; }
+    var d = clone(data);
+    var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
+    if (target) {
+      var maxP = target.totalPages || 0;
+      target.donePages = Math.min(maxP, Math.max(0, n));
+    }
+    save(d);
+    cancelEditPages();
+  };
   var markUnit = function (wbId) {
     var wb = wbs.find(function (w) { return w.id === wbId; });
     if (!wb) return;
@@ -1536,9 +1586,25 @@ function WorkbooksTab(p) {
                   {!allDone && done < total && <button onClick={function () { markUnit(wb.id); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", fontSize: 10 }}>第{done + 1}回 ✓</button>}
                   {!allDone && done >= total && wb.hasTest && !wb.testDone && <button onClick={function () { markTest(wb.id); }} style={{ ...S.smBtn, background: "#FF9800", color: "#fff", fontSize: 10 }}>テスト ✓</button>}
                   {allDone && <span style={{ fontSize: 12, color: "#4CAF50", fontWeight: 700 }}>✅</span>}
+                  {isP && <button onClick={function () { startEditUnits(wb); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", fontSize: 10 }} title="完了回数を直接編集">✏️</button>}
                 </div>
               </div>
               <div style={{ ...S.progBar, marginTop: 6 }}><div style={{ height: "100%", borderRadius: 3, background: ch.color, width: pct + "%" }} /></div>
+              {isP && editUnitsId === wb.id && (
+                <div style={{ marginTop: 8, padding: 8, background: "#FFFDE7", borderRadius: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>完了回数:</span>
+                  <input type="number" value={editUnitsVal} onChange={function (e) { setEditUnitsVal(e.target.value); }} min="0" max={total} style={{ ...S.input, width: 60, textAlign: "center", padding: "4px 6px" }} />
+                  <span style={{ fontSize: 11, color: "#999" }}>/ {total}回</span>
+                  {wb.hasTest && (
+                    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginLeft: 6 }}>
+                      <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>テスト:</span>
+                      <button onClick={function () { setEditTestDoneVal(!editTestDoneVal); }} style={{ ...S.smBtn, background: editTestDoneVal ? "#4CAF50" : "#e0e0e0", color: editTestDoneVal ? "#fff" : "#999", fontSize: 11, minWidth: 56 }}>{editTestDoneVal ? "完了" : "未"}</button>
+                    </span>
+                  )}
+                  <button onClick={function () { saveEditUnits(wb.id); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", fontSize: 11 }}>保存</button>
+                  <button onClick={cancelEditUnits} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>×</button>
+                </div>
+              )}
               {isP && (
                 <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                   {allDone && <button onClick={function () { resetChallenge(wb.id); }} style={{ ...S.smBtn, background: "#2196F3", color: "#fff", fontSize: 10 }}>🔄 来月号にリセット</button>}
@@ -1588,9 +1654,19 @@ function WorkbooksTab(p) {
                 <div style={{ display: "flex", gap: 4 }}>
                   <button onClick={function () { markPages(wb.id, 1); }} style={{ ...S.smBtn, background: "#eee", color: "#333", fontSize: 10 }}>+1p</button>
                   <button onClick={function () { markPages(wb.id, wb.dailyPages || 2); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", fontSize: 10 }}>+{wb.dailyPages || 2}p</button>
+                  {isP && <button onClick={function () { startEditPages(wb); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", fontSize: 10 }} title="完了ページを直接編集">✏️</button>}
                 </div>
               </div>
               <div style={{ ...S.progBar, marginTop: 6 }}><div style={{ height: "100%", borderRadius: 3, background: pct >= 80 ? "#4CAF50" : ch.color, width: pct + "%" }} /></div>
+              {isP && editPagesId === wb.id && (
+                <div style={{ marginTop: 8, padding: 8, background: "#FFFDE7", borderRadius: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>完了ページ:</span>
+                  <input type="number" value={editPagesVal} onChange={function (e) { setEditPagesVal(e.target.value); }} min="0" max={total} style={{ ...S.input, width: 60, textAlign: "center", padding: "4px 6px" }} />
+                  <span style={{ fontSize: 11, color: "#999" }}>/ {total}p</span>
+                  <button onClick={function () { saveEditPages(wb.id); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", fontSize: 11 }}>保存</button>
+                  <button onClick={cancelEditPages} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>×</button>
+                </div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
                 <div style={{ fontSize: 10, color: "#bbb" }}>{pct}%完了</div>
                 {isP && <button onClick={function () { deleteWb(wb.id); }} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#ccc" }}>🗑 削除</button>}
