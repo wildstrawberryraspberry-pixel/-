@@ -116,6 +116,8 @@ export default function App() {
         if (!p.todayChecks) p.todayChecks = {};
         if (!p.tests) p.tests = {};
         if (!p._dailySelections) p._dailySelections = {}; // 2026-05-19 B案
+        if (!p.kanjiList) p.kanjiList = {}; // 2026-05-24 間違えた漢字リスト
+        if (!p.kanjiHistory) p.kanjiHistory = {}; // 2026-05-24 漢字練習履歴
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -224,6 +226,7 @@ function MainView(p) {
   if (isM) navs.push({ id: "points", icon: "🌟", l: "ポイント" });
   if (isM) navs.push({ id: "review", icon: "📊", l: "ふりかえり" });
   if (isM) navs.push({ id: "tests", icon: "📝", l: "テスト" });
+  if (isM && (ch.id === "eishi" || ch.id === "yuzuki")) navs.push({ id: "kanji", icon: "✏️", l: "漢字" });
   if (isM) navs.push({ id: "rewards", icon: "🎁", l: "ごほうび" });
   return (
     <div style={S.app}>
@@ -262,6 +265,7 @@ function MainView(p) {
         {tab === "points" && isM && <PointsTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "review" && isM && <ReviewTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "tests" && isM && <TestsTab ch={ch} data={data} save={save} isP={isP} />}
+        {tab === "kanji" && isM && (ch.id === "eishi" || ch.id === "yuzuki") && <KanjiTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "rewards" && isM && <RewardsTab ch={ch} data={data} save={save} isP={isP} />}
       </main>
       {/* Nav */}
@@ -385,6 +389,11 @@ function buildTodayPlan(ch, data) {
         nc++;
       }
     }
+    // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
+    var eisKanjiActive = ((data.kanjiList && data.kanjiList["eishi"]) || []).filter(function (k) { return !k.completed; });
+    if (eisKanjiActive.length > 0) {
+      plan.push({ id: "today_kanji_test", label: "漢字テスト（" + Math.min(10, eisKanjiActive.length) + "問）", subject: "国語", time: "10分", action: "kanji_test", emoji: "🎯", done: !!todayDone["kanji_test"] });
+    }
   } else if (ch.id === "yuzuki") {
     plan.push({ id: "today_smile", label: "スマイルゼミ", subject: "", time: "", action: "smile", emoji: "📱", done: !!todayDone["smile"] });
     var yc = wbs.filter(function (w) { return w.type === "challenge" && (w.doneUnits < w.totalUnits || (w.hasTest && !w.testDone)); });
@@ -400,6 +409,11 @@ function buildTodayPlan(ch, data) {
       var yo = yp.filter(function (w) { return !w.dailyPages; });
       if (yk) plan.push({ id: "today_kanji", label: yk.name + " " + pageLabel(yk, yk.dailyPages), subject: yk.subject, time: (yk.dailyPages * (yk.minPerPage || 3)) + "分", wbId: yk.id, action: "pages", pages: yk.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
       if (yo.length > 0) { var ypp = pickWithPriority(yo, ch, "pit", dayOfYear, data); plan.push({ id: "today_pit_" + ypp.id, label: ypp.name + " " + pageLabel(ypp, 2), subject: ypp.subject, time: (2 * (ypp.minPerPage || 3)) + "分", wbId: ypp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ypp.id] }); }
+    }
+    // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
+    var yuzKanjiActive = ((data.kanjiList && data.kanjiList["yuzuki"]) || []).filter(function (k) { return !k.completed; });
+    if (yuzKanjiActive.length > 0) {
+      plan.push({ id: "today_kanji_test", label: "漢字テスト（" + Math.min(10, yuzKanjiActive.length) + "問）", subject: "国語", time: "10分", action: "kanji_test", emoji: "🎯", done: !!todayDone["kanji_test"] });
     }
   } else if (ch.id === "yukino") {
     var ync = 0;
@@ -506,6 +520,8 @@ function HomeTab(p) {
       if (wb4) wb4.donePages = Math.min(wb4.totalPages, (wb4.donePages || 0) + pagesAdvanced);
     } else if (item.action === "smile") {
       checkKey = "smile";
+    } else if (item.action === "kanji_test") {
+      checkKey = "kanji_test";
     } else if (item.action === "task") {
       checkKey = "task_" + item.taskId;
       if (d.tasks[ch.id] && d.tasks[ch.id][item.taskId]) {
@@ -808,6 +824,7 @@ function TodayPlanCard(p) {
     setAddWbId("");
   };
   // 漢字練習を1つのタスクとして追加（2026-05-16 修正：以前は1文字ずつ別タスクに分解されていた）
+  // 2026-05-24: kanjiList（間違えた漢字リスト）とkanjiHistory（練習履歴）にも自動登録
   var addKanji = function () {
     if (!kanjiInput.trim()) return;
     var chars = kanjiInput.trim().split("").filter(function (c) { return c.trim(); });
@@ -822,6 +839,22 @@ function TodayPlanCard(p) {
       time: (chars.length * 2) + "分",
       emoji: "✏️"
     });
+    // 間違えた漢字リストに自動登録（叡志・優珠綺のみ、重複除去）
+    if (ch.id === "eishi" || ch.id === "yuzuki") {
+      if (!d.kanjiList) d.kanjiList = {};
+      if (!d.kanjiList[ch.id]) d.kanjiList[ch.id] = [];
+      var now = Date.now();
+      chars.forEach(function (c, ci) {
+        var exists = d.kanjiList[ch.id].find(function (k) { return k.kanji === c && !k.completed; });
+        if (!exists) {
+          d.kanjiList[ch.id].push({ id: "kl" + (now + ci), kanji: c, addedDate: TD, correctStreak: 0, completed: false });
+        }
+      });
+      // 漢字練習履歴に追記
+      if (!d.kanjiHistory) d.kanjiHistory = {};
+      if (!d.kanjiHistory[ch.id]) d.kanjiHistory[ch.id] = [];
+      d.kanjiHistory[ch.id].push({ date: TD, kanjis: chars });
+    }
     save(d);
     setKanjiInput("");
   };
@@ -2717,6 +2750,215 @@ function TestsTab(p) {
     </div>
   );
 }
+// ═══ KANJI TAB (2026-05-24) ═══
+function KanjiTab(p) {
+  var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
+  var history = (data.kanjiHistory && data.kanjiHistory[ch.id]) || [];
+  var allKanji = (data.kanjiList && data.kanjiList[ch.id]) || [];
+  var active = allKanji.filter(function (k) { return !k.completed; });
+  var completed = allKanji.filter(function (k) { return k.completed; });
+  var todayDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
+  const [testState, setTestState] = React.useState(null);
+  // testState = null | { queue:[...], idx:number, results:{id:bool}, done?:bool }
+
+  var startTest = function () {
+    var shuffled = active.slice().sort(function () { return Math.random() - 0.5; });
+    var queue = shuffled.slice(0, 10);
+    setTestState({ queue: queue, idx: 0, results: {} });
+  };
+
+  var answerTest = function (correct) {
+    var ts = testState;
+    var cur = ts.queue[ts.idx];
+    var newResults = Object.assign({}, ts.results);
+    newResults[cur.id] = correct;
+    var nextIdx = ts.idx + 1;
+    if (nextIdx >= ts.queue.length) {
+      // テスト完了 → データ更新
+      var d = clone(data);
+      if (!d.kanjiList) d.kanjiList = {};
+      if (!d.kanjiList[ch.id]) d.kanjiList[ch.id] = [];
+      ts.queue.forEach(function (qItem) {
+        var wasCorrect = newResults[qItem.id];
+        var item = d.kanjiList[ch.id].find(function (k) { return k.id === qItem.id; });
+        if (item) {
+          if (wasCorrect) {
+            item.correctStreak = (item.correctStreak || 0) + 1;
+            if (item.correctStreak >= 3) item.completed = true;
+          } else {
+            item.correctStreak = 0;
+          }
+        }
+      });
+      // 今日のテストを完了マーク
+      if (!d.todayChecks) d.todayChecks = {};
+      if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
+      if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
+      d.todayChecks[ch.id][TD]["kanji_test"] = true;
+      // ポイント付与
+      ensurePts(d, ch.id);
+      var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
+      d.points[ch.id].balance += ptAmt;
+      d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: "漢字テスト完了", date: TD, id: "kp" + Date.now() });
+      save(d);
+      setTestState({ queue: ts.queue, idx: nextIdx, results: newResults, done: true });
+    } else {
+      setTestState({ queue: ts.queue, idx: nextIdx, results: newResults });
+    }
+  };
+
+  // お母さんが手動でリストから漢字を削除
+  var removeKanji = function (kanjiId) {
+    var d = clone(data);
+    if (d.kanjiList && d.kanjiList[ch.id]) {
+      d.kanjiList[ch.id] = d.kanjiList[ch.id].filter(function (k) { return k.id !== kanjiId; });
+    }
+    save(d);
+  };
+
+  return (
+    <div>
+      {/* 漢字練習の履歴 */}
+      <div style={S.card}>
+        <div style={S.cardTitle}>✏️ 漢字練習の履歴</div>
+        {history.length === 0 ? (
+          <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 16 }}>まだ漢字練習を追加していません</div>
+        ) : (
+          <div>
+            {history.slice().reverse().map(function (h, i) {
+              return (
+                <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: "1px solid #f5f5f5", alignItems: "flex-start" }}>
+                  <div style={{ fontSize: 11, color: "#aaa", minWidth: 64, paddingTop: 3 }}>{h.date}</div>
+                  <div style={{ fontSize: 20, letterSpacing: 4, fontWeight: 700, color: "#333" }}>{h.kanjis.join(" ")}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 間違えた漢字リスト */}
+      <div style={S.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ ...S.cardTitle, margin: 0 }}>📋 間違えた漢字リスト</div>
+          <div style={{ fontSize: 11, color: "#aaa" }}>{active.length}字 残り</div>
+        </div>
+        {active.length === 0 ? (
+          <div style={{ color: "#bbb", fontSize: 13, textAlign: "center", padding: 20 }}>
+            <div style={{ fontSize: 32 }}>🎉</div>
+            <div style={{ marginTop: 6 }}>全部定着しました！</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {active.map(function (k) {
+              return (
+                <div key={k.id} style={{ textAlign: "center", padding: "10px 14px", borderRadius: 12, background: "#f9f9f9", border: "1.5px solid #e8e8e8", minWidth: 64, position: "relative" }}>
+                  {isP && (
+                    <button onClick={function () { removeKanji(k.id); }} style={{ position: "absolute", top: 2, right: 4, background: "none", border: "none", fontSize: 11, color: "#ccc", cursor: "pointer", padding: 0 }}>✕</button>
+                  )}
+                  <div style={{ fontSize: 28, fontWeight: 900, color: "#333" }}>{k.kanji}</div>
+                  <div style={{ display: "flex", justifyContent: "center", gap: 3, marginTop: 5 }}>
+                    {[0, 1, 2].map(function (i) {
+                      return <div key={i} style={{ width: 10, height: 10, borderRadius: 5, background: i < (k.correctStreak || 0) ? "#4CAF50" : "#e0e0e0" }} />;
+                    })}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#aaa", marginTop: 2 }}>{k.correctStreak || 0}/3</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {completed.length > 0 && (
+          <details style={{ marginTop: 14 }}>
+            <summary style={{ fontSize: 11, color: "#aaa", cursor: "pointer", userSelect: "none" }}>✅ 定着済み（{completed.length}字）</summary>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+              {completed.map(function (k) {
+                return (
+                  <div key={k.id} style={{ fontSize: 22, padding: "5px 10px", borderRadius: 10, background: "#E8F5E9", color: "#4CAF50", fontWeight: 700 }}>
+                    {k.kanji}
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        )}
+      </div>
+
+      {/* テスト（お母さんモードのみ） */}
+      {isP && (
+        <div style={S.card}>
+          <div style={S.cardTitle}>🎯 漢字テスト</div>
+          {active.length === 0 ? (
+            <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 12 }}>間違えた漢字リストが空です</div>
+          ) : !testState ? (
+            <div>
+              {todayDone ? (
+                <div style={{ textAlign: "center", padding: 16, color: "#4CAF50", fontSize: 13, fontWeight: 700 }}>
+                  ✅ 今日のテストは完了しています
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.6 }}>
+                    リストからランダムに最大10問出題。正解・不正解を記録し、<br />
+                    <strong>3回連続正解</strong>で定着完了（リストから外れます）。
+                  </div>
+                  <button onClick={startTest} style={{ ...S.subBtn, background: ch.color }}>
+                    🎯 テスト開始（{Math.min(10, active.length)}問）
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : testState.done ? (
+            <div>
+              <div style={{ textAlign: "center", marginBottom: 14 }}>
+                <div style={{ fontSize: 36, marginBottom: 4 }}>🎉</div>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>テスト完了！</div>
+                <div style={{ fontSize: 13, color: "#666", marginTop: 4 }}>
+                  {testState.queue.filter(function (k) { return testState.results[k.id]; }).length} / {testState.queue.length} 問正解
+                </div>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+                {testState.queue.map(function (k) {
+                  var correct = testState.results[k.id];
+                  return (
+                    <div key={k.id} style={{ textAlign: "center", padding: "8px 12px", borderRadius: 10, background: correct ? "#E8F5E9" : "#FFEBEE", border: "2px solid " + (correct ? "#4CAF50" : "#E53935"), minWidth: 56 }}>
+                      <div style={{ fontSize: 24, fontWeight: 900 }}>{k.kanji}</div>
+                      <div style={{ fontSize: 18, marginTop: 2 }}>{correct ? "○" : "×"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={function () { setTestState(null); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", width: "100%" }}>閉じる</button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: "#aaa" }}>{testState.idx + 1} / {testState.queue.length} 問目</div>
+                <div style={{ display: "flex", gap: 3 }}>
+                  {testState.queue.map(function (_, i) {
+                    return <div key={i} style={{ width: 8, height: 8, borderRadius: 4, background: i < testState.idx ? "#4CAF50" : i === testState.idx ? ch.color : "#e0e0e0" }} />;
+                  })}
+                </div>
+              </div>
+              <div style={{ textAlign: "center", padding: "24px 0 16px" }}>
+                <div style={{ fontSize: 80, fontWeight: 900, color: ch.color, lineHeight: 1 }}>{testState.queue[testState.idx].kanji}</div>
+                <div style={{ fontSize: 12, color: "#aaa", marginTop: 12 }}>この漢字を紙に書いてみよう！</div>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <button onClick={function () { answerTest(false); }} style={{ ...S.subBtn, background: "#E53935", flex: 1 }}>
+                  ✕ 不正解
+                </button>
+                <button onClick={function () { answerTest(true); }} style={{ ...S.subBtn, background: "#4CAF50", flex: 1 }}>
+                  ○ 正解
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 // ═══ SHARED ═══
 function MStat(p) {
   return (
@@ -2740,8 +2982,6 @@ var S = {
   card: { background: "#fff", borderRadius: 14, padding: 14, marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,.04)" },
   cardTitle: { fontSize: 14, fontWeight: 800, color: "#333", marginBottom: 10 },
   check: { width: 24, height: 24, borderRadius: 12, border: "2px solid", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "#fff" },
-  addBtn: { padding: "6px 14px", borderRadius: 16, border: "none", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" },
-  subBtn: { width: "100%", padding: 10, borderRadius: 10, border: "none", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" },
   smBtn: { padding: "6px 12px", borderRadius: 8, border: "none", fontWeight: 700, fontSize: 12, cursor: "pointer" },
   delBtn: { background: "none", border: "none", fontSize: 14, cursor: "pointer", opacity: .3, padding: 4 },
   input: { width: "100%", padding: "9px 10px", borderRadius: 9, border: "1.5px solid #e0e0e0", fontSize: 13, outline: "none", background: "#FAFAFA", fontFamily: "inherit" },
