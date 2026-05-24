@@ -2758,7 +2758,7 @@ function KanjiTab(p) {
   var active = allKanji.filter(function (k) { return !k.completed; });
   var completed = allKanji.filter(function (k) { return k.completed; });
   var todayDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
-  const [testState, setTestState] = React.useState(null);
+  const [testState, setTestState] = useState(null);
   // testState = null | { queue:[...], idx:number, results:{id:bool}, done?:bool }
 
   var startTest = function () {
