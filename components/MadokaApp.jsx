@@ -346,7 +346,7 @@ function buildTodayPlan(ch, data) {
     if (tc < maxNew) {
       var tkanji = wbs.find(function (w) { return w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (tkanji) {
-        plan.push({ id: "today_kanji", label: tkanji.name + " " + pageLabel(tkanji, tkanji.dailyPages), subject: tkanji.subject, time: (tkanji.dailyPages * (tkanji.minPerPage || 5)) + "分", wbId: tkanji.id, action: "pages", pages: tkanji.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
+        plan.push({ id: "today_kanji", label: todayDone["label_kanji"] || (tkanji.name + " " + pageLabel(tkanji, tkanji.dailyPages)), subject: tkanji.subject, time: (tkanji.dailyPages * (tkanji.minPerPage || 5)) + "分", wbId: tkanji.id, action: "pages", pages: tkanji.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
         tc++;
       }
     }
@@ -354,7 +354,7 @@ function buildTodayPlan(ch, data) {
       var tpit = wbs.filter(function (w) { return w.type === "pages" && !w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (tpit.length > 0) {
         var tpp = pickWithPriority(tpit, ch, "pit", dayOfYear, data);
-        plan.push({ id: "today_pit_" + tpp.id, label: tpp.name + " " + pageLabel(tpp, 2), subject: tpp.subject, time: (2 * (tpp.minPerPage || 3)) + "分", wbId: tpp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + tpp.id] });
+        plan.push({ id: "today_pit_" + tpp.id, label: todayDone["label_pit_" + tpp.id] || (tpp.name + " " + pageLabel(tpp, 2)), subject: tpp.subject, time: (2 * (tpp.minPerPage || 3)) + "分", wbId: tpp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + tpp.id] });
         tc++;
       }
     }
@@ -377,7 +377,7 @@ function buildTodayPlan(ch, data) {
     if (nc < maxNew) {
       var kanji = wbs.find(function (w) { return w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (kanji) {
-        plan.push({ id: "today_kanji", label: kanji.name + " " + pageLabel(kanji, kanji.dailyPages), subject: kanji.subject, time: (kanji.dailyPages * (kanji.minPerPage || 5)) + "分", wbId: kanji.id, action: "pages", pages: kanji.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
+        plan.push({ id: "today_kanji", label: todayDone["label_kanji"] || (kanji.name + " " + pageLabel(kanji, kanji.dailyPages)), subject: kanji.subject, time: (kanji.dailyPages * (kanji.minPerPage || 5)) + "分", wbId: kanji.id, action: "pages", pages: kanji.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
         nc++;
       }
     }
@@ -385,7 +385,7 @@ function buildTodayPlan(ch, data) {
       var pit = wbs.filter(function (w) { return w.type === "pages" && !w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (pit.length > 0) {
         var pp = pickWithPriority(pit, ch, "pit", dayOfYear, data);
-        plan.push({ id: "today_pit_" + pp.id, label: pp.name + " " + pageLabel(pp, 2), subject: pp.subject, time: (2 * (pp.minPerPage || 3)) + "分", wbId: pp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + pp.id] });
+        plan.push({ id: "today_pit_" + pp.id, label: todayDone["label_pit_" + pp.id] || (pp.name + " " + pageLabel(pp, 2)), subject: pp.subject, time: (2 * (pp.minPerPage || 3)) + "分", wbId: pp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + pp.id] });
         nc++;
       }
     }
@@ -407,8 +407,8 @@ function buildTodayPlan(ch, data) {
     if (yp.length > 0) {
       var yk = yp.find(function (w) { return w.dailyPages; });
       var yo = yp.filter(function (w) { return !w.dailyPages; });
-      if (yk) plan.push({ id: "today_kanji", label: yk.name + " " + pageLabel(yk, yk.dailyPages), subject: yk.subject, time: (yk.dailyPages * (yk.minPerPage || 3)) + "分", wbId: yk.id, action: "pages", pages: yk.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
-      if (yo.length > 0) { var ypp = pickWithPriority(yo, ch, "pit", dayOfYear, data); plan.push({ id: "today_pit_" + ypp.id, label: ypp.name + " " + pageLabel(ypp, 2), subject: ypp.subject, time: (2 * (ypp.minPerPage || 3)) + "分", wbId: ypp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ypp.id] }); }
+      if (yk) plan.push({ id: "today_kanji", label: todayDone["label_kanji"] || (yk.name + " " + pageLabel(yk, yk.dailyPages)), subject: yk.subject, time: (yk.dailyPages * (yk.minPerPage || 3)) + "分", wbId: yk.id, action: "pages", pages: yk.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
+      if (yo.length > 0) { var ypp = pickWithPriority(yo, ch, "pit", dayOfYear, data); plan.push({ id: "today_pit_" + ypp.id, label: todayDone["label_pit_" + ypp.id] || (ypp.name + " " + pageLabel(ypp, 2)), subject: ypp.subject, time: (2 * (ypp.minPerPage || 3)) + "分", wbId: ypp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ypp.id] }); }
     }
     // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
     var yuzKanjiActive = ((data.kanjiList && data.kanjiList["yuzuki"]) || []).filter(function (k) { return !k.completed; });
@@ -433,7 +433,7 @@ function buildTodayPlan(ch, data) {
     if (ync < maxNew) {
       var ynkanji = wbs.find(function (w) { return w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (ynkanji) {
-        plan.push({ id: "today_kanji", label: ynkanji.name + " " + pageLabel(ynkanji, ynkanji.dailyPages), subject: ynkanji.subject, time: (ynkanji.dailyPages * (ynkanji.minPerPage || 5)) + "分", wbId: ynkanji.id, action: "pages", pages: ynkanji.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
+        plan.push({ id: "today_kanji", label: todayDone["label_kanji"] || (ynkanji.name + " " + pageLabel(ynkanji, ynkanji.dailyPages)), subject: ynkanji.subject, time: (ynkanji.dailyPages * (ynkanji.minPerPage || 5)) + "分", wbId: ynkanji.id, action: "pages", pages: ynkanji.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
         ync++;
       }
     }
@@ -441,7 +441,7 @@ function buildTodayPlan(ch, data) {
       var ynpit = wbs.filter(function (w) { return w.type === "pages" && !w.dailyPages && (w.donePages || 0) < w.totalPages; });
       if (ynpit.length > 0) {
         var ynpp = pickWithPriority(ynpit, ch, "pit", dayOfYear, data);
-        plan.push({ id: "today_pit_" + ynpp.id, label: ynpp.name + " " + pageLabel(ynpp, 2), subject: ynpp.subject, time: (2 * (ynpp.minPerPage || 3)) + "分", wbId: ynpp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ynpp.id] });
+        plan.push({ id: "today_pit_" + ynpp.id, label: todayDone["label_pit_" + ynpp.id] || (ynpp.name + " " + pageLabel(ynpp, 2)), subject: ynpp.subject, time: (2 * (ynpp.minPerPage || 3)) + "分", wbId: ynpp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ynpp.id] });
         ync++;
       }
     }
@@ -530,6 +530,7 @@ function HomeTab(p) {
       }
     }
     d.todayChecks[ch.id][TD][checkKey] = true;
+    if (checkKey) d.todayChecks[ch.id][TD]["label_" + checkKey] = item.label; // 2026-05-24 ラベル保存
     // If partial, add remaining to carryover for tomorrow
     if (isPartial && (item.action === "pages" || item.action === "pit_pages")) {
       var remainPages = (item.pages || 2) - pagesAdvanced;
