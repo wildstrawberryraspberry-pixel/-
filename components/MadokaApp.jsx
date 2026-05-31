@@ -828,16 +828,18 @@ function TodayPlanCard(p) {
   // 2026-05-24: kanjiList（間違えた漢字リスト）とkanjiHistory（練習履歴）にも自動登録
   var addKanji = function () {
     if (!kanjiInput.trim()) return;
-    var chars = kanjiInput.trim().split("").filter(function (c) { return c.trim(); });
-    if (chars.length === 0) return;
+    // スペース・読点区切りで「単語」として分割（2026-05-24 修正: 1文字ずつではなく単語単位で管理）
+    var words = kanjiInput.trim().split(/[\s\u3001\uff0c,]+/).filter(function (w) { return w.trim(); });
+    if (words.length === 0) return;
     var d = clone(data);
     ensureOverrides(d, targetTD);
-    var kanjiStr = chars.join("");
+    var kanjiStr = words.join(" ");
+    var totalChars = words.reduce(function (s, w) { return s + w.length; }, 0);
     d.todayOverrides[ch.id][targetTD].added.push({
       id: "kanji" + Date.now() + Math.random(),
       label: "漢字練習：「" + kanjiStr + "」をノートに1行ずつ書く",
       subject: "国語",
-      time: (chars.length * 2) + "分",
+      time: (totalChars * 2) + "分",
       emoji: "✏️"
     });
     // 間違えた漢字リストに自動登録（叡志・優珠綺のみ、重複除去）
@@ -845,16 +847,16 @@ function TodayPlanCard(p) {
       if (!d.kanjiList) d.kanjiList = {};
       if (!d.kanjiList[ch.id]) d.kanjiList[ch.id] = [];
       var now = Date.now();
-      chars.forEach(function (c, ci) {
-        var exists = d.kanjiList[ch.id].find(function (k) { return k.kanji === c && !k.completed; });
+      words.forEach(function (w, wi) {
+        var exists = d.kanjiList[ch.id].find(function (k) { return k.kanji === w && !k.completed; });
         if (!exists) {
-          d.kanjiList[ch.id].push({ id: "kl" + (now + ci), kanji: c, addedDate: TD, correctStreak: 0, completed: false });
+          d.kanjiList[ch.id].push({ id: "kl" + (now + wi), kanji: w, addedDate: TD, correctStreak: 0, completed: false });
         }
       });
       // 漢字練習履歴に追記
       if (!d.kanjiHistory) d.kanjiHistory = {};
       if (!d.kanjiHistory[ch.id]) d.kanjiHistory[ch.id] = [];
-      d.kanjiHistory[ch.id].push({ date: TD, kanjis: chars });
+      d.kanjiHistory[ch.id].push({ date: TD, kanjis: words });
     }
     save(d);
     setKanjiInput("");
@@ -1086,11 +1088,11 @@ function TodayPlanCard(p) {
             <div style={{ padding: 10, background: "#F3E5F5", borderRadius: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ 練習したい漢字を入力</div>
               <div style={{ display: "flex", gap: 6 }}>
-                <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 森林海" style={{ ...S.input, fontSize: 18, letterSpacing: 4, textAlign: "center" }} />
+                <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, fontSize: 15, textAlign: "center" }} />
                 <button onClick={addKanji} style={{ ...S.smBtn, background: "#9C27B0", color: "#fff", whiteSpace: "nowrap" }}>追加</button>
                 <button onClick={function () { setShowKanji(false); setKanjiInput(""); }} style={{ ...S.smBtn, background: "#eee", color: "#999" }}>✕</button>
               </div>
-              <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>入力した漢字をまとめて1つの「漢字練習」タスクとして追加します</div>
+              <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>スペース区切りで複数の漢字語を登録できます（例: 空港 図書館）。単語単位でリストに追加されます。</div>
             </div>
           )}
         </div>
@@ -2751,7 +2753,7 @@ function TestsTab(p) {
     </div>
   );
 }
-// ═══ KANJI TAB (2026-05-24) ═══
+// ═══ KANJI TAB (2026-05-24 rev2) ═══
 function KanjiTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   var history = (data.kanjiHistory && data.kanjiHistory[ch.id]) || [];
@@ -2760,12 +2762,31 @@ function KanjiTab(p) {
   var completed = allKanji.filter(function (k) { return k.completed; });
   var todayDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   const [testState, setTestState] = useState(null);
-  // testState = null | { queue:[...], idx:number, results:{id:bool}, done?:bool }
+  const [editId, setEditId] = useState(null);
+  const [editReading, setEditReading] = useState("");
+  const [editSentence, setEditSentence] = useState("");
 
+  var startEdit = function (k) {
+    setEditId(k.id);
+    setEditReading(k.reading || "");
+    setEditSentence(k.sentence || "");
+  };
+  var saveEdit = function () {
+    var d = clone(data);
+    if (d.kanjiList && d.kanjiList[ch.id]) {
+      var item = d.kanjiList[ch.id].find(function (k) { return k.id === editId; });
+      if (item) { item.reading = editReading.trim(); item.sentence = editSentence.trim(); }
+    }
+    save(d);
+    setEditId(null);
+  };
+
+  // テスト開始：読みが設定されている語のみ対象
   var startTest = function () {
-    var shuffled = active.slice().sort(function () { return Math.random() - 0.5; });
-    var queue = shuffled.slice(0, 10);
-    setTestState({ queue: queue, idx: 0, results: {} });
+    var testable = active.filter(function (k) { return k.reading && k.reading.trim(); });
+    if (testable.length === 0) return;
+    var shuffled = testable.slice().sort(function () { return Math.random() - 0.5; });
+    setTestState({ queue: shuffled.slice(0, 10), idx: 0, results: {} });
   };
 
   var answerTest = function (correct) {
@@ -2775,28 +2796,22 @@ function KanjiTab(p) {
     newResults[cur.id] = correct;
     var nextIdx = ts.idx + 1;
     if (nextIdx >= ts.queue.length) {
-      // テスト完了 → データ更新
       var d = clone(data);
       if (!d.kanjiList) d.kanjiList = {};
       if (!d.kanjiList[ch.id]) d.kanjiList[ch.id] = [];
       ts.queue.forEach(function (qItem) {
-        var wasCorrect = newResults[qItem.id];
         var item = d.kanjiList[ch.id].find(function (k) { return k.id === qItem.id; });
         if (item) {
-          if (wasCorrect) {
+          if (newResults[qItem.id]) {
             item.correctStreak = (item.correctStreak || 0) + 1;
             if (item.correctStreak >= 3) item.completed = true;
-          } else {
-            item.correctStreak = 0;
-          }
+          } else { item.correctStreak = 0; }
         }
       });
-      // 今日のテストを完了マーク
       if (!d.todayChecks) d.todayChecks = {};
       if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
       if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
       d.todayChecks[ch.id][TD]["kanji_test"] = true;
-      // ポイント付与
       ensurePts(d, ch.id);
       var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
       d.points[ch.id].balance += ptAmt;
@@ -2808,7 +2823,6 @@ function KanjiTab(p) {
     }
   };
 
-  // お母さんが手動でリストから漢字を削除
   var removeKanji = function (kanjiId) {
     var d = clone(data);
     if (d.kanjiList && d.kanjiList[ch.id]) {
@@ -2816,6 +2830,48 @@ function KanjiTab(p) {
     }
     save(d);
   };
+
+  // 例文中の「読み」部分をハイライト（下線＋色）して出題表示
+  var renderQuestion = function (item) {
+    var reading = (item.reading || "").trim();
+    var sentence = (item.sentence || "").trim();
+    // 例文あり・かつ例文に読みが含まれる場合 → 例文を前後に分割してハイライト
+    if (sentence && reading && sentence.indexOf(reading) >= 0) {
+      var idx = sentence.indexOf(reading);
+      var before = sentence.slice(0, idx);
+      var after = sentence.slice(idx + reading.length);
+      return (
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>下線部を漢字で書こう！</div>
+          <div style={{ fontSize: 22, color: "#333", lineHeight: 2, letterSpacing: 1 }}>
+            {before}
+            <span style={{ color: ch.color, fontWeight: 900, borderBottom: "3px solid " + ch.color, paddingBottom: 2, fontSize: 26 }}>{reading}</span>
+            {after}
+          </div>
+        </div>
+      );
+    }
+    // 例文はあるが読みが含まれない場合 → 例文＋読みを別表示
+    if (sentence && reading) {
+      return (
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 13, color: "#aaa", marginBottom: 10 }}>下線部を漢字で書こう！</div>
+          <div style={{ fontSize: 18, color: "#555", marginBottom: 12, lineHeight: 1.8 }}>{sentence}</div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: ch.color, borderBottom: "3px solid " + ch.color, display: "inline-block", paddingBottom: 2, letterSpacing: 4 }}>{reading}</div>
+        </div>
+      );
+    }
+    // 読みのみ
+    return (
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>この読みを漢字で書こう！</div>
+        <div style={{ fontSize: 44, fontWeight: 900, color: ch.color, letterSpacing: 8 }}>{reading}</div>
+      </div>
+    );
+  };
+
+  var testableCount = active.filter(function (k) { return k.reading && k.reading.trim(); }).length;
+  var noReadingCount = active.filter(function (k) { return !k.reading || !k.reading.trim(); }).length;
 
   return (
     <div>
@@ -2830,7 +2886,7 @@ function KanjiTab(p) {
               return (
                 <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: "1px solid #f5f5f5", alignItems: "flex-start" }}>
                   <div style={{ fontSize: 11, color: "#aaa", minWidth: 64, paddingTop: 3 }}>{h.date}</div>
-                  <div style={{ fontSize: 20, letterSpacing: 4, fontWeight: 700, color: "#333" }}>{h.kanjis.join(" ")}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>{h.kanjis.join("　")}</div>
                 </div>
               );
             })}
@@ -2842,7 +2898,7 @@ function KanjiTab(p) {
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <div style={{ ...S.cardTitle, margin: 0 }}>📋 間違えた漢字リスト</div>
-          <div style={{ fontSize: 11, color: "#aaa" }}>{active.length}字 残り</div>
+          <div style={{ fontSize: 11, color: "#aaa" }}>{active.length}語 残り</div>
         </div>
         {active.length === 0 ? (
           <div style={{ color: "#bbb", fontSize: 13, textAlign: "center", padding: 20 }}>
@@ -2850,20 +2906,45 @@ function KanjiTab(p) {
             <div style={{ marginTop: 6 }}>全部定着しました！</div>
           </div>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {active.map(function (k) {
+              var isEditing = editId === k.id;
+              var hasReading = !!(k.reading && k.reading.trim());
               return (
-                <div key={k.id} style={{ textAlign: "center", padding: "10px 14px", borderRadius: 12, background: "#f9f9f9", border: "1.5px solid #e8e8e8", minWidth: 64, position: "relative" }}>
-                  {isP && (
-                    <button onClick={function () { removeKanji(k.id); }} style={{ position: "absolute", top: 2, right: 4, background: "none", border: "none", fontSize: 11, color: "#ccc", cursor: "pointer", padding: 0 }}>✕</button>
-                  )}
-                  <div style={{ fontSize: 28, fontWeight: 900, color: "#333" }}>{k.kanji}</div>
-                  <div style={{ display: "flex", justifyContent: "center", gap: 3, marginTop: 5 }}>
-                    {[0, 1, 2].map(function (i) {
-                      return <div key={i} style={{ width: 10, height: 10, borderRadius: 5, background: i < (k.correctStreak || 0) ? "#4CAF50" : "#e0e0e0" }} />;
-                    })}
+                <div key={k.id} style={{ padding: "10px 12px", borderRadius: 12, background: "#f9f9f9", border: "1.5px solid " + (hasReading ? "#e8e8e8" : "#FFCC80") }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: "#333", minWidth: 52 }}>{k.kanji}</div>
+                    {hasReading
+                      ? <div style={{ fontSize: 13, color: "#888" }}>{k.reading}</div>
+                      : <div style={{ fontSize: 11, color: "#FF9800", fontWeight: 700 }}>⚠️ 読みを設定してください</div>}
+                    <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ display: "flex", gap: 3 }}>
+                        {[0, 1, 2].map(function (i) {
+                          return <div key={i} style={{ width: 10, height: 10, borderRadius: 5, background: i < (k.correctStreak || 0) ? "#4CAF50" : "#e0e0e0" }} />;
+                        })}
+                      </div>
+                      {isP && <button onClick={function () { if (isEditing) { setEditId(null); } else { startEdit(k); } }} style={{ ...S.smBtn, background: isEditing ? "#eee" : "#f0f0f0", color: "#555", fontSize: 11 }}>{isEditing ? "閉じる" : "✏️ 設定"}</button>}
+                      {isP && <button onClick={function () { removeKanji(k.id); }} style={{ background: "none", border: "none", fontSize: 14, color: "#ccc", cursor: "pointer", padding: "2px 4px" }}>✕</button>}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 9, color: "#aaa", marginTop: 2 }}>{k.correctStreak || 0}/3</div>
+                  {k.sentence && !isEditing && <div style={{ fontSize: 12, color: "#888", marginTop: 4, fontStyle: "italic" }}>例文: {k.sentence}</div>}
+                  {isEditing && (
+                    <div style={{ marginTop: 10, padding: 10, background: "#FFFDE7", borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#795548", marginBottom: 8 }}>「{k.kanji}」の出題設定</div>
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>読み（ひらがな）</div>
+                        <input value={editReading} onChange={function (e) { setEditReading(e.target.value); }} placeholder="例: きかい" style={{ ...S.input, fontSize: 15 }} />
+                      </div>
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>例文（読みを含む文章にするとその部分が強調されます）</div>
+                        <input value={editSentence} onChange={function (e) { setEditSentence(e.target.value); }} placeholder="例: きかいをうごかす" style={{ ...S.input, fontSize: 14 }} />
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={saveEdit} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1, padding: "8px 0" }}>保存</button>
+                        <button onClick={function () { setEditId(null); }} style={{ ...S.smBtn, background: "#eee", color: "#999", padding: "8px 12px" }}>キャンセル</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -2871,13 +2952,11 @@ function KanjiTab(p) {
         )}
         {completed.length > 0 && (
           <details style={{ marginTop: 14 }}>
-            <summary style={{ fontSize: 11, color: "#aaa", cursor: "pointer", userSelect: "none" }}>✅ 定着済み（{completed.length}字）</summary>
+            <summary style={{ fontSize: 11, color: "#aaa", cursor: "pointer", userSelect: "none" }}>✅ 定着済み（{completed.length}語）</summary>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
               {completed.map(function (k) {
                 return (
-                  <div key={k.id} style={{ fontSize: 22, padding: "5px 10px", borderRadius: 10, background: "#E8F5E9", color: "#4CAF50", fontWeight: 700 }}>
-                    {k.kanji}
-                  </div>
+                  <div key={k.id} style={{ fontSize: 16, padding: "5px 10px", borderRadius: 10, background: "#E8F5E9", color: "#4CAF50", fontWeight: 700 }}>{k.kanji}</div>
                 );
               })}
             </div>
@@ -2893,18 +2972,23 @@ function KanjiTab(p) {
             <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 12 }}>間違えた漢字リストが空です</div>
           ) : !testState ? (
             <div>
-              {todayDone ? (
-                <div style={{ textAlign: "center", padding: 16, color: "#4CAF50", fontSize: 13, fontWeight: 700 }}>
-                  ✅ 今日のテストは完了しています
+              {noReadingCount > 0 && (
+                <div style={{ fontSize: 12, color: "#E65100", background: "#FFF3E0", padding: "8px 12px", borderRadius: 8, marginBottom: 10, lineHeight: 1.6 }}>
+                  ⚠️ {noReadingCount}語に読みが未設定です。上のリスト「✏️ 設定」から読み・例文を入力してください。
                 </div>
+              )}
+              {todayDone ? (
+                <div style={{ textAlign: "center", padding: 16, color: "#4CAF50", fontSize: 13, fontWeight: 700 }}>✅ 今日のテストは完了しています</div>
+              ) : testableCount === 0 ? (
+                <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 12 }}>出題できる語がありません。読みを設定してください。</div>
               ) : (
                 <div>
-                  <div style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.6 }}>
-                    リストからランダムに最大10問出題。正解・不正解を記録し、<br />
-                    <strong>3回連続正解</strong>で定着完了（リストから外れます）。
+                  <div style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.8 }}>
+                    例文の下線部を漢字で紙に書いてもらい、正誤を判定してください。<br />
+                    <strong>3回連続正解</strong>で定着完了です。
                   </div>
                   <button onClick={startTest} style={{ ...S.subBtn, background: ch.color }}>
-                    🎯 テスト開始（{Math.min(10, active.length)}問）
+                    🎯 テスト開始（{Math.min(10, testableCount)}問）
                   </button>
                 </div>
               )}
@@ -2918,13 +3002,16 @@ function KanjiTab(p) {
                   {testState.queue.filter(function (k) { return testState.results[k.id]; }).length} / {testState.queue.length} 問正解
                 </div>
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
                 {testState.queue.map(function (k) {
                   var correct = testState.results[k.id];
                   return (
-                    <div key={k.id} style={{ textAlign: "center", padding: "8px 12px", borderRadius: 10, background: correct ? "#E8F5E9" : "#FFEBEE", border: "2px solid " + (correct ? "#4CAF50" : "#E53935"), minWidth: 56 }}>
-                      <div style={{ fontSize: 24, fontWeight: 900 }}>{k.kanji}</div>
-                      <div style={{ fontSize: 18, marginTop: 2 }}>{correct ? "○" : "×"}</div>
+                    <div key={k.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 10, background: correct ? "#E8F5E9" : "#FFEBEE", border: "1.5px solid " + (correct ? "#4CAF50" : "#E53935") }}>
+                      <div style={{ fontSize: 22 }}>{correct ? "○" : "×"}</div>
+                      <div>
+                        <div style={{ fontSize: 18, fontWeight: 900 }}>{k.kanji}</div>
+                        {k.reading && <div style={{ fontSize: 12, color: "#888" }}>{k.reading}</div>}
+                      </div>
                     </div>
                   );
                 })}
@@ -2933,7 +3020,7 @@ function KanjiTab(p) {
             </div>
           ) : (
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: "#aaa" }}>{testState.idx + 1} / {testState.queue.length} 問目</div>
                 <div style={{ display: "flex", gap: 3 }}>
                   {testState.queue.map(function (_, i) {
@@ -2941,17 +3028,12 @@ function KanjiTab(p) {
                   })}
                 </div>
               </div>
-              <div style={{ textAlign: "center", padding: "24px 0 16px" }}>
-                <div style={{ fontSize: 80, fontWeight: 900, color: ch.color, lineHeight: 1 }}>{testState.queue[testState.idx].kanji}</div>
-                <div style={{ fontSize: 12, color: "#aaa", marginTop: 12 }}>この漢字を紙に書いてみよう！</div>
+              <div style={{ padding: "16px 8px 24px", minHeight: 130 }}>
+                {renderQuestion(testState.queue[testState.idx])}
               </div>
-              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                <button onClick={function () { answerTest(false); }} style={{ ...S.subBtn, background: "#E53935", flex: 1 }}>
-                  ✕ 不正解
-                </button>
-                <button onClick={function () { answerTest(true); }} style={{ ...S.subBtn, background: "#4CAF50", flex: 1 }}>
-                  ○ 正解
-                </button>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={function () { answerTest(false); }} style={{ ...S.subBtn, background: "#E53935", flex: 1 }}>✕ 不正解</button>
+                <button onClick={function () { answerTest(true); }} style={{ ...S.subBtn, background: "#4CAF50", flex: 1 }}>○ 正解</button>
               </div>
             </div>
           )}
@@ -2960,6 +3042,7 @@ function KanjiTab(p) {
     </div>
   );
 }
+
 // ═══ SHARED ═══
 function MStat(p) {
   return (
