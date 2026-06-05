@@ -604,6 +604,41 @@ function HomeTab(p) {
     d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + (isPartial ? " 途中まで" : " 完了"), date: TD, id: _ptHistoryId });
     save(d);
   };
+  // 漢字テスト問題閲覧：問題レンダラー（KanjiTabと同等のロジック）
+  var renderKanjiQuestion = function (item) {
+    var reading = (item.reading || "").trim();
+    var sentence = (item.sentence || "").trim();
+    if (sentence && reading && sentence.indexOf(reading) >= 0) {
+      var _idx = sentence.indexOf(reading);
+      var _before = sentence.slice(0, _idx);
+      var _after = sentence.slice(_idx + reading.length);
+      return (
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}>下線部を漢字で書こう！</div>
+          <div style={{ fontSize: 20, color: "#333", lineHeight: 2, letterSpacing: 1 }}>
+            {_before}
+            <span style={{ color: ch.color, fontWeight: 900, borderBottom: "3px solid " + ch.color, paddingBottom: 2, fontSize: 24 }}>{reading}</span>
+            {_after}
+          </div>
+        </div>
+      );
+    }
+    if (sentence && reading) {
+      return (
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>下線部を漢字で書こう！</div>
+          <div style={{ fontSize: 16, color: "#555", marginBottom: 10, lineHeight: 1.8 }}>{sentence}</div>
+          <div style={{ fontSize: 30, fontWeight: 900, color: ch.color, borderBottom: "3px solid " + ch.color, display: "inline-block", paddingBottom: 2, letterSpacing: 4 }}>{reading}</div>
+        </div>
+      );
+    }
+    return (
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>この読みを漢字で書こう！</div>
+        <div style={{ fontSize: 40, fontWeight: 900, color: ch.color, letterSpacing: 8 }}>{reading}</div>
+      </div>
+    );
+  };
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       {/* Stats */}
@@ -694,6 +729,7 @@ function TodayPlanCard(p) {
   const [addWbPages, setAddWbPages] = useState("2");
   const [kanjiInput, setKanjiInput] = useState("");
   const [showKanji, setShowKanji] = useState(false);
+  const [kanjiTestIdx, setKanjiTestIdx] = useState(-1); // 漢字テスト問題閲覧インデックス（-1=非表示）
   const [dayOffset, setDayOffset] = useState(0); // 0=today, 1=tomorrow, etc.
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   // Target date for editing
@@ -745,7 +781,18 @@ function TodayPlanCard(p) {
     return { id: a.id, label: a.label, done: !!todayDone["custom_" + a.id], _fromDate: a._fromDate };
   }).filter(function (a) { return a.done; });
   var allPending = isToday ? visiblePending.concat(addedItems) : addedItems;
-  var allDone = isToday ? donePlan.concat(addedDone) : addedDone;
+  // 2026-05-24: donePlanではなくtodayChecksのlabel_*キーから完了タスクを復元
+  // （チャレンジ完了後にplanが変わって完了項目が消えるバグを修正）
+  var planDoneItems = [];
+  if (isToday) {
+    var _checks = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][targetTD]) || {};
+    Object.keys(_checks).forEach(function (k) {
+      if (k.indexOf("label_") === 0 && _checks[k]) {
+        planDoneItems.push({ id: k, label: _checks[k], done: true });
+      }
+    });
+  }
+  var allDone = isToday ? planDoneItems.concat(addedDone) : addedDone;
   var actualRemain = allPending.length;
   var ensureOverrides = function (d, date) {
     if (!d.todayOverrides) d.todayOverrides = {};
@@ -995,6 +1042,51 @@ function TodayPlanCard(p) {
             </div>
           </div>
         );
+        if (item.action === "kanji_test") {
+          var _kanjiActive = ((data.kanjiList && data.kanjiList[ch.id]) || []).filter(function (k) { return !k.completed && k.reading && k.reading.trim(); });
+          if (kanjiTestIdx < 0) {
+            return (
+              <div key={item.id} style={{ padding: "10px 0", borderBottom: "1px solid #f3f3f3" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>{item.emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{item.label}</div>
+                    <div style={{ fontSize: 10, color: "#999" }}>{item.subject}・{item.time}</div>
+                  </div>
+                  {_kanjiActive.length > 0
+                    ? <button onClick={function () { setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>問題を見る ▶</button>
+                    : <span style={{ fontSize: 11, color: "#FFCC80", fontWeight: 700 }}>⚠️ 読み未設定</span>}
+                </div>
+              </div>
+            );
+          }
+          var _curQ = _kanjiActive[kanjiTestIdx] || null;
+          return (
+            <div key={item.id} style={{ background: "#F8F9FF", borderRadius: 14, padding: 14, marginBottom: 8, boxShadow: "0 1px 4px rgba(0,0,0,.06)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: "#aaa", fontWeight: 600 }}>{kanjiTestIdx + 1} / {_kanjiActive.length} 問目</div>
+                <div style={{ display: "flex", gap: 3 }}>
+                  {_kanjiActive.map(function (_, i) {
+                    return <div key={i} style={{ width: 7, height: 7, borderRadius: 4, background: i === kanjiTestIdx ? ch.color : "#e0e0e0" }} />;
+                  })}
+                </div>
+                <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#eee", color: "#999", fontSize: 11 }}>✕ 閉じる</button>
+              </div>
+              <div style={{ padding: "10px 4px 16px", minHeight: 110 }}>
+                {_curQ ? renderKanjiQuestion(_curQ) : <div style={{ textAlign: "center", color: "#ccc" }}>問題がありません</div>}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}>← 前の問題</button>
+                {kanjiTestIdx < _kanjiActive.length - 1
+                  ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>次の問題 →</button>
+                  : <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}>終わり！✓</button>}
+              </div>
+              {kanjiTestIdx === _kanjiActive.length - 1 && (
+                <div style={{ textAlign: "center", fontSize: 11, color: "#888" }}>📝 お母さんに「漢字」タブで採点してもらおう！</div>
+              )}
+            </div>
+          );
+        }
         if (item.action === "custom") {
           return <PlanItem key={item.id} item={item} ch={ch} data={data} save={save} checkPlanItem={function (it) { checkCustom(it); }} />;
         }
