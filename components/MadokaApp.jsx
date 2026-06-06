@@ -604,41 +604,6 @@ function HomeTab(p) {
     d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + (isPartial ? " 途中まで" : " 完了"), date: TD, id: _ptHistoryId });
     save(d);
   };
-  // 漢字テスト問題閲覧：問題レンダラー（KanjiTabと同等のロジック）
-  var renderKanjiQuestion = function (item) {
-    var reading = (item.reading || "").trim();
-    var sentence = (item.sentence || "").trim();
-    if (sentence && reading && sentence.indexOf(reading) >= 0) {
-      var _idx = sentence.indexOf(reading);
-      var _before = sentence.slice(0, _idx);
-      var _after = sentence.slice(_idx + reading.length);
-      return (
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}>下線部を漢字で書こう！</div>
-          <div style={{ fontSize: 20, color: "#333", lineHeight: 2, letterSpacing: 1 }}>
-            {_before}
-            <span style={{ color: ch.color, fontWeight: 900, borderBottom: "3px solid " + ch.color, paddingBottom: 2, fontSize: 24 }}>{reading}</span>
-            {_after}
-          </div>
-        </div>
-      );
-    }
-    if (sentence && reading) {
-      return (
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>下線部を漢字で書こう！</div>
-          <div style={{ fontSize: 16, color: "#555", marginBottom: 10, lineHeight: 1.8 }}>{sentence}</div>
-          <div style={{ fontSize: 30, fontWeight: 900, color: ch.color, borderBottom: "3px solid " + ch.color, display: "inline-block", paddingBottom: 2, letterSpacing: 4 }}>{reading}</div>
-        </div>
-      );
-    }
-    return (
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>この読みを漢字で書こう！</div>
-        <div style={{ fontSize: 40, fontWeight: 900, color: ch.color, letterSpacing: 8 }}>{reading}</div>
-      </div>
-    );
-  };
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       {/* Stats */}
@@ -731,6 +696,41 @@ function TodayPlanCard(p) {
   const [showKanji, setShowKanji] = useState(false);
   const [kanjiTestIdx, setKanjiTestIdx] = useState(-1); // 漢字テスト問題閲覧インデックス（-1=非表示）
   const [dayOffset, setDayOffset] = useState(0); // 0=today, 1=tomorrow, etc.
+  // 漢字テスト問題閲覧：問題レンダラー（KanjiTabと同等のロジック）
+  var renderKanjiQuestion = function (item) {
+    var reading = (item.reading || "").trim();
+    var sentence = (item.sentence || "").trim();
+    if (sentence && reading && sentence.indexOf(reading) >= 0) {
+      var _idx = sentence.indexOf(reading);
+      var _before = sentence.slice(0, _idx);
+      var _after = sentence.slice(_idx + reading.length);
+      return (
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}>下線部を漢字で書こう！</div>
+          <div style={{ fontSize: 20, color: "#333", lineHeight: 2, letterSpacing: 1 }}>
+            {_before}
+            <span style={{ color: ch.color, fontWeight: 900, borderBottom: "3px solid " + ch.color, paddingBottom: 2, fontSize: 24 }}>{reading}</span>
+            {_after}
+          </div>
+        </div>
+      );
+    }
+    if (sentence && reading) {
+      return (
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>下線部を漢字で書こう！</div>
+          <div style={{ fontSize: 16, color: "#555", marginBottom: 10, lineHeight: 1.8 }}>{sentence}</div>
+          <div style={{ fontSize: 30, fontWeight: 900, color: ch.color, borderBottom: "3px solid " + ch.color, display: "inline-block", paddingBottom: 2, letterSpacing: 4 }}>{reading}</div>
+        </div>
+      );
+    }
+    return (
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>この読みを漢字で書こう！</div>
+        <div style={{ fontSize: 40, fontWeight: 900, color: ch.color, letterSpacing: 8 }}>{reading}</div>
+      </div>
+    );
+  };
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   // Target date for editing
   var targetDate = new Date(NOW);
