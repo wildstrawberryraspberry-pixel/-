@@ -312,6 +312,17 @@ function pickWithPriority(candidates, ch, kind, dayOfYear, data) {
   } catch (e) { /* fall through to rotation */ }
   return candidates[dayOfYear % candidates.length];
 }
+// 2026-06-06: その日の漢字テスト出題（最大10問）。日付をシードにした決定的シャッフルで、
+// 子どもの閲覧（TodayPlanCard）とお母さんの採点（KanjiTab）が端末をまたいでも同じ10問になる。
+function kanjiDailyQueue(list, seedStr) {
+  var pool = (list || []).filter(function (k) { return !k.completed && k.reading && k.reading.trim(); });
+  var h = 2166136261;
+  for (var i = 0; i < seedStr.length; i++) { h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619); }
+  var rand = function () { h += 0x6D2B79F5; var t = Math.imul(h ^ (h >>> 15), 1 | h); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  var arr = pool.slice();
+  for (var j = arr.length - 1; j > 0; j--) { var r = Math.floor(rand() * (j + 1)); var tmp = arr[j]; arr[j] = arr[r]; arr[r] = tmp; }
+  return arr.slice(0, 10);
+}
 function buildTodayPlan(ch, data) {
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD]) || {};
@@ -1043,7 +1054,7 @@ function TodayPlanCard(p) {
           </div>
         );
         if (item.action === "kanji_test") {
-          var _kanjiActive = ((data.kanjiList && data.kanjiList[ch.id]) || []).filter(function (k) { return !k.completed && k.reading && k.reading.trim(); });
+          var _kanjiActive = kanjiDailyQueue((data.kanjiList && data.kanjiList[ch.id]) || [], TD);
           if (kanjiTestIdx < 0) {
             return (
               <div key={item.id} style={{ padding: "10px 0", borderBottom: "1px solid #f3f3f3" }}>
@@ -2875,10 +2886,9 @@ function KanjiTab(p) {
 
   // テスト開始：読みが設定されている語のみ対象
   var startTest = function () {
-    var testable = active.filter(function (k) { return k.reading && k.reading.trim(); });
-    if (testable.length === 0) return;
-    var shuffled = testable.slice().sort(function () { return Math.random() - 0.5; });
-    setTestState({ queue: shuffled.slice(0, 10), idx: 0, results: {} });
+    var queue = kanjiDailyQueue(allKanji, TD);
+    if (queue.length === 0) return;
+    setTestState({ queue: queue, idx: 0, results: {} });
   };
 
   var answerTest = function (correct) {
@@ -2896,7 +2906,7 @@ function KanjiTab(p) {
         if (item) {
           if (newResults[qItem.id]) {
             item.correctStreak = (item.correctStreak || 0) + 1;
-            if (item.correctStreak >= 3) item.completed = true;
+            if (item.correctStreak >= 2) item.completed = true;
           } else { item.correctStreak = 0; }
         }
       });
@@ -3011,7 +3021,7 @@ function KanjiTab(p) {
                       : <div style={{ fontSize: 11, color: "#FF9800", fontWeight: 700 }}>⚠️ 読みを設定してください</div>}
                     <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
                       <div style={{ display: "flex", gap: 3 }}>
-                        {[0, 1, 2].map(function (i) {
+                        {[0, 1].map(function (i) {
                           return <div key={i} style={{ width: 10, height: 10, borderRadius: 5, background: i < (k.correctStreak || 0) ? "#4CAF50" : "#e0e0e0" }} />;
                         })}
                       </div>
@@ -3077,7 +3087,7 @@ function KanjiTab(p) {
                 <div>
                   <div style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.8 }}>
                     例文の下線部を漢字で紙に書いてもらい、正誤を判定してください。<br />
-                    <strong>3回連続正解</strong>で定着完了です。
+                    <strong>2回連続正解</strong>で定着完了です。
                   </div>
                   <button onClick={startTest} style={{ ...S.subBtn, background: ch.color }}>
                     🎯 テスト開始（{Math.min(10, testableCount)}問）
