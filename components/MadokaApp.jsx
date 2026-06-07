@@ -314,8 +314,11 @@ function pickWithPriority(candidates, ch, kind, dayOfYear, data) {
 }
 // 2026-06-06: その日の漢字テスト出題（最大10問）。日付をシードにした決定的シャッフルで、
 // 子どもの閲覧（TodayPlanCard）とお母さんの採点（KanjiTab）が端末をまたいでも同じ10問になる。
+// 2026-06-06: 未完了かつ「練習日（addedDate）が今日以前」になった漢字だけをテスト対象とする。
+// addedDate 未設定の旧データは常に対象（後方互換）。td/addedDate はともに "YYYY-MM-DD" で辞書順＝時系列。
+function isKanjiDue(k, td) { return !k.completed && (!k.addedDate || k.addedDate <= td); }
 function kanjiDailyQueue(list, seedStr) {
-  var pool = (list || []).filter(function (k) { return !k.completed && k.reading && k.reading.trim(); });
+  var pool = (list || []).filter(function (k) { return isKanjiDue(k, seedStr) && k.reading && k.reading.trim(); });
   var h = 2166136261;
   for (var i = 0; i < seedStr.length; i++) { h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619); }
   var rand = function () { h += 0x6D2B79F5; var t = Math.imul(h ^ (h >>> 15), 1 | h); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -401,7 +404,7 @@ function buildTodayPlan(ch, data) {
       }
     }
     // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
-    var eisKanjiActive = ((data.kanjiList && data.kanjiList["eishi"]) || []).filter(function (k) { return !k.completed; });
+    var eisKanjiActive = ((data.kanjiList && data.kanjiList["eishi"]) || []).filter(function (k) { return isKanjiDue(k, TD); });
     if (eisKanjiActive.length > 0) {
       plan.push({ id: "today_kanji_test", label: "漢字テスト（" + Math.min(10, eisKanjiActive.length) + "問）", subject: "国語", time: "10分", action: "kanji_test", emoji: "🎯", done: !!todayDone["kanji_test"] });
     }
@@ -422,7 +425,7 @@ function buildTodayPlan(ch, data) {
       if (yo.length > 0) { var ypp = pickWithPriority(yo, ch, "pit", dayOfYear, data); plan.push({ id: "today_pit_" + ypp.id, label: todayDone["label_pit_" + ypp.id] || (ypp.name + " " + pageLabel(ypp, 2)), subject: ypp.subject, time: (2 * (ypp.minPerPage || 3)) + "分", wbId: ypp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ypp.id] }); }
     }
     // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
-    var yuzKanjiActive = ((data.kanjiList && data.kanjiList["yuzuki"]) || []).filter(function (k) { return !k.completed; });
+    var yuzKanjiActive = ((data.kanjiList && data.kanjiList["yuzuki"]) || []).filter(function (k) { return isKanjiDue(k, TD); });
     if (yuzKanjiActive.length > 0) {
       plan.push({ id: "today_kanji_test", label: "漢字テスト（" + Math.min(10, yuzKanjiActive.length) + "問）", subject: "国語", time: "10分", action: "kanji_test", emoji: "🎯", done: !!todayDone["kanji_test"] });
     }
@@ -908,13 +911,13 @@ function TodayPlanCard(p) {
       words.forEach(function (w, wi) {
         var exists = d.kanjiList[ch.id].find(function (k) { return k.kanji === w && !k.completed; });
         if (!exists) {
-          d.kanjiList[ch.id].push({ id: "kl" + (now + wi), kanji: w, addedDate: TD, correctStreak: 0, completed: false });
+          d.kanjiList[ch.id].push({ id: "kl" + (now + wi), kanji: w, addedDate: targetTD, correctStreak: 0, completed: false });
         }
       });
       // 漢字練習履歴に追記
       if (!d.kanjiHistory) d.kanjiHistory = {};
       if (!d.kanjiHistory[ch.id]) d.kanjiHistory[ch.id] = [];
-      d.kanjiHistory[ch.id].push({ date: TD, kanjis: words });
+      d.kanjiHistory[ch.id].push({ date: targetTD, kanjis: words });
     }
     save(d);
     setKanjiInput("");
@@ -1178,6 +1181,17 @@ function TodayPlanCard(p) {
               </div>
             </div>
           )}
+        </div>
+      )}
+      {/* 漢字練習を追加（編集モード＝日付選択バーで選んだ日に追加。明日以降も可） */}
+      {isP && editing && (
+        <div style={{ marginTop: 8, padding: 10, background: "#F3E5F5", borderRadius: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ {dayLabel}の漢字練習を追加</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, flex: 1, fontSize: 15, textAlign: "center" }} />
+            <button onClick={addKanji} style={{ ...S.smBtn, background: "#9C27B0", color: "#fff", whiteSpace: "nowrap" }}>追加</button>
+          </div>
+          <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>スペース区切りで複数登録できます。「{dayLabel}」のやることに追加されます（叡志・優珠綺は間違えた漢字リストにも登録）。</div>
         </div>
       )}
       {/* Kanji practice quick-add (parent mode, always visible) */}
@@ -2861,7 +2875,8 @@ function KanjiTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   var history = (data.kanjiHistory && data.kanjiHistory[ch.id]) || [];
   var allKanji = (data.kanjiList && data.kanjiList[ch.id]) || [];
-  var active = allKanji.filter(function (k) { return !k.completed; });
+  var active = allKanji.filter(function (k) { return isKanjiDue(k, TD); });
+  var upcoming = allKanji.filter(function (k) { return !k.completed && k.addedDate && k.addedDate > TD; });
   var completed = allKanji.filter(function (k) { return k.completed; });
   var todayDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   const [testState, setTestState] = useState(null);
@@ -3002,6 +3017,9 @@ function KanjiTab(p) {
           <div style={{ ...S.cardTitle, margin: 0 }}>📋 間違えた漢字リスト</div>
           <div style={{ fontSize: 11, color: "#aaa" }}>{active.length}語 残り</div>
         </div>
+        {upcoming.length > 0 && (
+          <div style={{ fontSize: 11, color: "#9C27B0", background: "#F3E5F5", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>📅 練習日待ち {upcoming.length}語（練習日が来たらテストに出ます）</div>
+        )}
         {active.length === 0 ? (
           <div style={{ color: "#bbb", fontSize: 13, textAlign: "center", padding: 20 }}>
             <div style={{ fontSize: 32 }}>🎉</div>
