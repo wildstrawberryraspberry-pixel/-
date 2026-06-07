@@ -234,13 +234,13 @@ function MainView(p) {
       {/* Logout + mode label */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px" }}>
         <button onClick={onLogout} style={{ background: "none", border: "none", fontSize: 12, color: "#999", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>← もどる</button>
-        <span style={{ fontSize: 12, color: "#999", fontWeight: 600 }}>{isP ? "👩‍👧‍👦 お母さん" : ch.emoji + " " + ch.name}</span>
+        <span style={{ fontSize: 12, color: "#999", fontWeight: 600 }}>{isP ? "👩‍👧‍👦 お母さん" : <Kid t={ch.emoji + " " + ch.name} ch={ch} data={data} on={!isP} />}</span>
       </div>
       {/* Header */}
       <header style={{ ...S.header, background: "linear-gradient(135deg," + ch.color + "," + ch.color + "cc)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 800 }}>{isP ? "まどかファミリー学習帳" : ch.name + "の学習帳"}</div>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>{isP ? "まどかファミリー学習帳" : <Kid t={ch.name + "の学習帳"} ch={ch} data={data} on={!isP} />}</div>
             <div style={{ fontSize: 11, opacity: .9, marginTop: 2 }}>{NOW.getMonth() + 1}月{NOW.getDate()}日（{DJ[TDI]}）</div>
           </div>
           {isM && <div style={S.badge}>⭐{pts}pt</div>}
@@ -274,7 +274,7 @@ function MainView(p) {
           return (
             <button key={t.id} onClick={function () { setTab(t.id); }} style={{ ...S.navBtn, color: tab === t.id ? ch.color : "#aaa" }}>
               <span style={{ fontSize: 20 }}>{t.icon}</span>
-              <span style={{ fontSize: 9, fontWeight: tab === t.id ? 700 : 400, marginTop: 1 }}>{t.l}</span>
+              <span style={{ fontSize: 9, fontWeight: tab === t.id ? 700 : 400, marginTop: 1 }}><Kid t={t.l} ch={ch} data={data} on={!isP} /></span>
             </button>
           );
         })}
@@ -326,6 +326,61 @@ function kanjiDailyQueue(list, seedStr) {
   for (var j = arr.length - 1; j > 0; j--) { var r = Math.floor(rand() * (j + 1)); var tmp = arr[j]; arr[j] = arr[r]; arr[r] = tmp; }
   return arr.slice(0, 10);
 }
+// ===== 2026-06-06 ふりがな（学年別漢字表示）機能 =====
+// 学年別漢字配当表（教育漢字 小1-6、出典: みんなの知識 ちょっと便利帳 / 学習指導要領 学年別漢字配当表）。
+var _KG = ["一右雨円王音下火花貝学気九休玉金空月犬見五口校左三山子四糸字耳七車手十出女小上森人水正生青夕石赤千川先早草足村大男竹中虫町天田土二日入年白八百文木本名目立力林六","引羽雲園遠何科夏家歌画回会海絵外角楽活間丸岩顔汽記帰弓牛魚京強教近兄形計元言原戸古午後語工公広交光考行高黄合谷国黒今才細作算止市矢姉思紙寺自時室社弱首秋週春書少場色食心新親図数西声星晴切雪船線前組走多太体台地池知茶昼長鳥朝直通弟店点電刀冬当東答頭同道読内南肉馬売買麦半番父風分聞米歩母方北毎妹万明鳴毛門夜野友用曜来里理話","悪安暗医委意育員院飲運泳駅央横屋温化荷界開階寒感漢館岸起期客究急級宮球去橋業曲局銀区苦具君係軽血決研県庫湖向幸港号根祭皿仕死使始指歯詩次事持式実写者主守取酒受州拾終習集住重宿所暑助昭消商章勝乗植申身神真深進世整昔全相送想息速族他打対待代第題炭短談着注柱丁帳調追定庭笛鉄転都度投豆島湯登等動童農波配倍箱畑発反坂板皮悲美鼻筆氷表秒病品負部服福物平返勉放味命面問役薬由油有遊予羊洋葉陽様落流旅両緑礼列練路和","愛案以衣位茨印英栄媛塩岡億加果貨課芽賀改械害街各覚潟完官管関観願岐希季旗器機議求泣給挙漁共協鏡競極熊訓軍郡群径景芸欠結建健験固功好香候康佐差菜最埼材崎昨札刷察参産散残氏司試児治滋辞鹿失借種周祝順初松笑唱焼照城縄臣信井成省清静席積折節説浅戦選然争倉巣束側続卒孫帯隊達単置仲沖兆低底的典伝徒努灯働特徳栃奈梨熱念敗梅博阪飯飛必票標不夫付府阜富副兵別辺変便包法望牧末満未民無約勇要養浴利陸良料量輪類令冷例連老労録","圧囲移因永営衛易益液演応往桜可仮価河過快解格確額刊幹慣眼紀基寄規喜技義逆久旧救居許境均禁句型経潔件険検限現減故個護効厚耕航鉱構興講告混査再災妻採際在財罪殺雑酸賛士支史志枝師資飼示似識質舎謝授修述術準序招証象賞条状常情織職制性政勢精製税責績接設絶祖素総造像増則測属率損貸態団断築貯張停提程適統堂銅導得毒独任燃能破犯判版比肥非費備評貧布婦武復複仏粉編弁保墓報豊防貿暴脈務夢迷綿輸余容略留領歴","胃異遺域宇映延沿恩我灰拡革閣割株干巻看簡危机揮貴疑吸供胸郷勤筋系敬警劇激穴券絹権憲源厳己呼誤后孝皇紅降鋼刻穀骨困砂座済裁策冊蚕至私姿視詞誌磁射捨尺若樹収宗就衆従縦縮熟純処署諸除承将傷障蒸針仁垂推寸盛聖誠舌宣専泉洗染銭善奏窓創装層操蔵臓存尊退宅担探誕段暖値宙忠著庁頂腸潮賃痛敵展討党糖届難乳認納脳派拝背肺俳班晩否批秘俵腹奮並陛閉片補暮宝訪亡忘棒枚幕密盟模訳郵優預幼欲翌乱卵覧裏律臨朗論"];
+var KANJI_GRADE = {};
+(function () { for (var g = 0; g < _KG.length; g++) { var s = _KG[g]; for (var i = 0; i < s.length; i++) KANJI_GRADE[s[i]] = g + 1; } })();
+// アプリで使う語の正しいよみがな（熟語の読みを優先）。
+var KID_DICT = {"国語":"こくご","算数":"さんすう","理科":"りか","社会":"しゃかい","英語":"えいご","数学":"すうがく","生活":"せいかつ","音楽":"おんがく","図工":"ずこう","体育":"たいいく","漢字":"かんじ","計算":"けいさん","橙吾":"だいご","叡志":"えいし","優珠綺":"ゆずき","優綺乃":"ゆきの","完了":"かんりょう","残り":"のこり","学習":"がくしゅう","学習帳":"がくしゅうちょう","終了":"しゅうりょう","進捗":"しんちょく","問題":"もんだい","問題集":"もんだいしゅう","今日":"きょう","明日":"あした","予定":"よてい","練習":"れんしゅう","漢字練習":"かんじれんしゅう","下線部":"かせんぶ","読み":"よみ","問目":"もんめ","採点":"さいてん","全部":"ぜんぶ","追加":"ついか","未設定":"みせってい","時間":"じかん","学年":"がくねん","教科":"きょうか","点数":"てんすう","順位":"じゅんい","成績":"せいせき","記録":"きろく","履歴":"りれき","設定":"せってい","定着":"ていちゃく","今月":"こんげつ","活動":"かつどう","完成":"かんせい","残":"のこ","母":"かあ","お母さん":"おかあさん","書く":"かく","書こう":"かこう","書いて":"かいて","終わり":"おわり","終わった":"おわった","終わる":"おわる","始めよう":"はじめよう","始める":"はじめる","見る":"みる","見せる":"みせる","覚えた":"おぼえた","分":"ふん","秒":"びょう","問":"もん","回":"かい","第":"だい","前":"まえ","次":"つぎ","小":"しょう","中":"ちゅう","大":"だい","行":"ぎょう","字":"じ","点":"てん","組":"くみ","週":"しゅう","曜":"よう","閉じる":"とじる"};
+// 教育漢字 小1-5 の1文字読み（辞書に無い漢字のフォールバック用。代表的な読みのみ）。
+var KCHAR = {"一":"ひと","右":"みぎ","雨":"あめ","円":"まる","王":"おう","音":"おと","下":"した","火":"ひ","花":"はな","貝":"かい","学":"まな","気":"き","九":"ここの","休":"やす","玉":"たま","金":"かね","空":"そら","月":"つき","犬":"いぬ","見":"み","五":"いつ","口":"くち","校":"こう","左":"ひだり","三":"み","山":"やま","子":"こ","四":"よ","糸":"いと","字":"あざ","耳":"みみ","七":"なな","車":"くるま","手":"て","十":"とお","出":"で","女":"おんな","小":"ちい","上":"うえ","森":"もり","人":"ひと","水":"みず","正":"ただ","生":"い","青":"あお","夕":"ゆう","石":"いし","赤":"あか","千":"ち","川":"かわ","先":"さき","早":"はや","草":"くさ","足":"あし","村":"むら","大":"おお","男":"おとこ","竹":"たけ","中":"なか","虫":"むし","町":"まち","天":"あめ","田":"た","土":"つち","二":"ふた","日":"ひ","入":"い","年":"とし","白":"しろ","八":"や","百":"ひゃく","文":"ふみ","木":"き","本":"もと","名":"な","目":"め","立":"た","力":"ちから","林":"はやし","六":"む","引":"ひ","羽":"は","雲":"くも","園":"その","遠":"とお","何":"なに","科":"か","夏":"なつ","家":"いえ","歌":"うた","画":"が","回":"まわ","会":"あ","海":"うみ","絵":"かい","外":"そと","角":"かど","楽":"たの","活":"かつ","間":"あいだ","丸":"まる","岩":"いわ","顔":"かお","汽":"き","記":"しる","帰":"かえ","弓":"ゆみ","牛":"うし","魚":"うお","京":"きょう","強":"つよ","教":"おし","近":"ちか","兄":"あに","形":"かた","計":"はか","元":"もと","言":"い","原":"はら","戸":"と","古":"ふる","午":"ご","後":"のち","語":"かた","工":"こう","公":"おおやけ","広":"ひろ","交":"まじ","光":"ひか","考":"かんが","行":"い","高":"たか","黄":"き","合":"あ","谷":"たに","国":"くに","黒":"くろ","今":"いま","才":"さい","細":"ほそ","作":"つく","算":"さん","止":"と","市":"いち","矢":"や","姉":"あね","思":"おも","紙":"かみ","寺":"てら","自":"みずか","時":"とき","室":"むろ","社":"やしろ","弱":"よわ","首":"くび","秋":"あき","週":"しゅう","春":"はる","書":"か","少":"すく","場":"ば","色":"いろ","食":"く","心":"こころ","新":"あたら","親":"おや","図":"はか","数":"かず","西":"にし","声":"こえ","星":"ほし","晴":"は","切":"き","雪":"ゆき","船":"ふね","線":"せん","前":"まえ","組":"く","走":"はし","多":"おお","太":"ふと","体":"からだ","台":"だい","地":"ち","池":"いけ","知":"し","茶":"ちゃ","昼":"ひる","長":"なが","鳥":"とり","朝":"あさ","直":"ただ","通":"とお","弟":"おとうと","店":"みせ","点":"てん","電":"でん","刀":"かたな","冬":"ふゆ","当":"あ","東":"ひがし","答":"こた","頭":"あたま","同":"おな","道":"みち","読":"よ","内":"うち","南":"みなみ","肉":"にく","馬":"うま","売":"う","買":"か","麦":"むぎ","半":"なか","番":"ばん","父":"ちち","風":"かぜ","分":"わ","聞":"き","米":"こめ","歩":"ある","母":"はは","方":"かた","北":"きた","毎":"まい","妹":"いもうと","万":"まん","明":"あ","鳴":"な","毛":"け","門":"かど","夜":"よ","野":"の","友":"とも","用":"もち","曜":"よう","来":"く","里":"さと","理":"り","話":"はな","悪":"わる","安":"やす","暗":"くら","医":"い","委":"ゆだ","意":"い","育":"そだ","員":"いん","院":"いん","飲":"の","運":"はこ","泳":"およ","駅":"えき","央":"おう","横":"よこ","屋":"や","温":"あたた","化":"ば","荷":"に","界":"かい","開":"ひら","階":"かい","寒":"さむ","感":"かん","漢":"かん","館":"やかた","岸":"きし","起":"お","期":"き","客":"きゃく","究":"きわ","急":"いそ","級":"きゅう","宮":"みや","球":"たま","去":"さ","橋":"はし","業":"わざ","曲":"ま","局":"きょく","銀":"ぎん","区":"く","苦":"くる","具":"ぐ","君":"きみ","係":"かか","軽":"かる","血":"ち","決":"き","研":"と","県":"けん","庫":"こ","湖":"みずうみ","向":"む","幸":"さいわ","港":"みなと","号":"ごう","根":"ね","祭":"まつ","皿":"さら","仕":"つか","死":"し","使":"つか","始":"はじ","指":"ゆび","歯":"は","詩":"し","次":"つ","事":"こと","持":"も","式":"しき","実":"み","写":"うつ","者":"もの","主":"ぬし","守":"まも","取":"と","酒":"さけ","受":"う","州":"す","拾":"ひろ","終":"お","習":"なら","集":"あつ","住":"す","重":"え","宿":"やど","所":"ところ","暑":"あつ","助":"たす","昭":"しょう","消":"き","商":"あきな","章":"しょう","勝":"か","乗":"の","植":"う","申":"もう","身":"み","神":"かみ","真":"ま","深":"ふか","進":"すす","世":"よ","整":"ととの","昔":"むかし","全":"まった","相":"あい","送":"おく","想":"そう","息":"いき","速":"はや","族":"やから","他":"ほか","打":"う","対":"たい","待":"ま","代":"か","第":"だい","題":"だい","炭":"すみ","短":"みじか","談":"だん","着":"き","注":"そそ","柱":"はしら","丁":"ちょう","帳":"ちょう","調":"しら","追":"お","定":"さだ","庭":"にわ","笛":"ふえ","鉄":"てつ","転":"ころ","都":"みやこ","度":"たび","投":"な","豆":"まめ","島":"しま","湯":"ゆ","登":"のぼ","等":"ひと","動":"うご","童":"わらべ","農":"のう","波":"なみ","配":"くば","倍":"ばい","箱":"はこ","畑":"はた","発":"はつ","反":"そ","坂":"さか","板":"いた","皮":"かわ","悲":"かな","美":"うつく","鼻":"はな","筆":"ふで","氷":"こおり","表":"おもて","秒":"びょう","病":"や","品":"しな","負":"ま","部":"ぶ","服":"ふく","福":"ふく","物":"もの","平":"たい","返":"かえ","勉":"べん","放":"はな","味":"あじ","命":"いのち","面":"おも","問":"と","役":"やく","薬":"くすり","由":"よし","油":"あぶら","有":"あ","遊":"あそ","予":"よ","羊":"ひつじ","洋":"よう","葉":"は","陽":"よう","様":"さま","落":"お","流":"なが","旅":"たび","両":"りょう","緑":"みどり","礼":"れい","列":"れつ","練":"ね","路":"じ","和":"やわ","愛":"あい","案":"あん","以":"い","衣":"ころも","位":"くらい","茨":"いばら","印":"しるし","英":"えい","栄":"さか","媛":"えん","塩":"しお","岡":"おか","億":"おく","加":"くわ","果":"は","貨":"か","課":"か","芽":"め","賀":"が","改":"あらた","械":"かい","害":"がい","街":"まち","各":"おのおの","覚":"おぼ","潟":"かた","完":"かん","官":"かん","管":"くだ","関":"せき","観":"かん","願":"ねが","岐":"き","希":"き","季":"き","旗":"はた","器":"うつわ","機":"はた","議":"ぎ","求":"もと","泣":"な","給":"きゅう","挙":"あ","漁":"ぎょ","共":"とも","協":"きょう","鏡":"かがみ","競":"きそ","極":"きわ","熊":"くま","訓":"くん","軍":"ぐん","郡":"ぐん","群":"む","径":"けい","景":"けい","芸":"げい","欠":"か","結":"むす","建":"た","健":"すこ","験":"けん","固":"かた","功":"こう","好":"この","香":"か","候":"そうろう","康":"こう","佐":"さ","差":"さ","菜":"な","最":"もっと","埼":"さい","材":"ざい","崎":"さき","昨":"さく","札":"ふだ","刷":"す","察":"さつ","参":"まい","産":"う","散":"ち","残":"のこ","氏":"うじ","司":"し","試":"こころ","児":"じ","治":"おさ","滋":"じ","辞":"や","鹿":"しか","失":"うしな","借":"か","種":"たね","周":"まわ","祝":"いわ","順":"じゅん","初":"はじ","松":"まつ","笑":"わら","唱":"とな","焼":"や","照":"て","城":"しろ","縄":"なわ","臣":"しん","信":"しん","井":"い","成":"な","省":"かえり","清":"きよ","静":"しず","席":"せき","積":"つ","折":"お","節":"ふし","説":"と","浅":"あさ","戦":"いくさ","選":"えら","然":"ぜん","争":"あらそ","倉":"くら","巣":"す","束":"たば","側":"がわ","続":"つづ","卒":"そつ","孫":"まご","帯":"お","隊":"たい","達":"たつ","単":"たん","置":"お","仲":"なか","沖":"おき","兆":"きざ","低":"ひく","底":"そこ","的":"まと","典":"てん","伝":"つた","徒":"と","努":"つと","灯":"ひ","働":"はたら","特":"とく","徳":"とく","栃":"とち","奈":"な","梨":"なし","熱":"あつ","念":"ねん","敗":"やぶ","梅":"うめ","博":"はく","阪":"はん","飯":"めし","飛":"と","必":"かなら","票":"ひょう","標":"しるし","不":"ふ","夫":"おっと","付":"つ","府":"ふ","阜":"ふ","富":"と","副":"ふく","兵":"へい","別":"わか","辺":"あたり","変":"か","便":"たよ","包":"つつ","法":"ほう","望":"のぞ","牧":"まき","末":"すえ","満":"み","未":"み","民":"たみ","無":"な","約":"やく","勇":"いさ","要":"かなめ","養":"やしな","浴":"あ","利":"き","陸":"りく","良":"よ","料":"りょう","量":"はか","輪":"わ","類":"たぐ","令":"れい","冷":"つめ","例":"たと","連":"つら","老":"お","労":"ろう","録":"ろく","圧":"あつ","囲":"かこ","移":"うつ","因":"よ","永":"なが","営":"いとな","衛":"えい","易":"やさ","益":"えき","液":"えき","演":"えん","応":"こた","往":"おう","桜":"さくら","可":"か","仮":"かり","価":"あたい","河":"かわ","過":"す","快":"こころよ","解":"と","格":"かく","確":"たし","額":"ひたい","刊":"かん","幹":"みき","慣":"な","眼":"まなこ","紀":"き","基":"もと","寄":"よ","規":"き","喜":"よろこ","技":"わざ","義":"ぎ","逆":"さか","久":"ひさ","旧":"きゅう","救":"すく","居":"い","許":"ゆる","境":"さかい","均":"きん","禁":"きん","句":"く","型":"かた","経":"へ","潔":"いさぎよ","件":"けん","険":"けわ","検":"けん","限":"かぎ","現":"あらわ","減":"へ","故":"ゆえ","個":"こ","護":"ご","効":"き","厚":"あつ","耕":"たがや","航":"こう","鉱":"こう","構":"かま","興":"おこ","講":"こう","告":"つ","混":"ま","査":"さ","再":"ふたた","災":"わざわい","妻":"つま","採":"と","際":"きわ","在":"あ","財":"ざい","罪":"つみ","殺":"ころ","雑":"ざつ","酸":"す","賛":"さん","士":"し","支":"ささ","史":"し","志":"こころざ","枝":"えだ","師":"し","資":"し","飼":"か","示":"しめ","似":"に","識":"しき","質":"しつ","舎":"しゃ","謝":"あやま","授":"さず","修":"おさ","述":"の","術":"じゅつ","準":"じゅん","序":"じょ","招":"まね","証":"しょう","象":"しょう","賞":"しょう","条":"じょう","状":"じょう","常":"つね","情":"なさ","織":"お","職":"しょく","制":"せい","性":"せい","政":"まつりごと","勢":"いきお","精":"せい","製":"せい","税":"ぜい","責":"せ","績":"せき","接":"つ","設":"もう","絶":"た","祖":"そ","素":"そ","総":"そう","造":"つく","像":"ぞう","増":"ま","則":"そく","測":"はか","属":"ぞく","率":"ひき","損":"そこ","貸":"か","態":"たい","団":"だん","断":"た","築":"きず","貯":"ちょ","張":"は","停":"てい","提":"さ","程":"ほど","適":"てき","統":"す","堂":"どう","銅":"どう","導":"みちび","得":"え","毒":"どく","独":"ひと","任":"まか","燃":"も","能":"のう","破":"やぶ","犯":"おか","判":"はん","版":"はん","比":"くら","肥":"こ","非":"ひ","費":"つい","備":"そな","評":"ひょう","貧":"まず","布":"ぬの","婦":"ふ","武":"ぶ","復":"ふく","複":"ふく","仏":"ほとけ","粉":"こ","編":"あ","弁":"べん","保":"たも","墓":"はか","報":"むく","豊":"ゆた","防":"ふせ","貿":"ぼう","暴":"あば","脈":"みゃく","務":"つと","夢":"ゆめ","迷":"まよ","綿":"わた","輸":"ゆ","余":"あま","容":"よう","略":"りゃく","留":"と","領":"りょう","歴":"れき"};
+function isKanjiCh(c) { var o = c.charCodeAt(0); return o >= 0x4E00 && o <= 0x9FFF; }
+// その子の「前学年まで」を許容学年として返す（小2→1, 小5→4, 中1→6, 小1→0）。
+function gradeAllowed(ch) {
+  var s = (ch && ch.grade) || "";
+  var m = s.match(/[0-9０-９]+/);
+  var n = m ? parseInt(m[0].replace(/[０-９]/g, function (d) { return "０１２３４５６７８９".indexOf(d); }), 10) : 0;
+  if (s.indexOf("中") >= 0) n += 6; else if (s.indexOf("高") >= 0) n += 9;
+  return n - 1;
+}
+function kidRuby(word, reading, key) {
+  return <ruby key={key} style={{ rubyAlign: "center" }}>{word}<rt style={{ fontSize: "0.55em", fontWeight: 400, color: "#9a9a9a", letterSpacing: 0 }}>{reading}</rt></ruby>;
+}
+// 本人ビュー用：許容学年を超える漢字を含む語にふりがな（ルビ）を付けて返す。
+// on=false（お母さんモード等）のときは元の文字列をそのまま返す。
+function Kid(p) {
+  if (p.on === false) return p.t;
+  var t = (p.t == null) ? "" : String(p.t);
+  if (!t) return t;
+  var allowed = (p.allowed != null) ? p.allowed : gradeAllowed(p.ch);
+  var dict = KID_DICT;
+  if (p.data && p.ch) {
+    var kl = (p.data.kanjiList && p.data.kanjiList[p.ch.id]) || [];
+    if (kl.length) { dict = Object.assign({}, KID_DICT); kl.forEach(function (k) { if (k.kanji && k.reading && k.reading.trim()) dict[k.kanji] = k.reading.trim(); }); }
+  }
+  function outRange(c) { if (!isKanjiCh(c)) return false; var g = KANJI_GRADE[c]; return !g || g > allowed; }
+  var out = [], buf = "", i = 0, key = 0, MAXW = 8;
+  function flush() { if (buf) { out.push(buf); buf = ""; } }
+  while (i < t.length) {
+    var m = null, ml = 0, mr = null, max = Math.min(MAXW, t.length - i);
+    for (var L = max; L >= 1; L--) { var sub = t.substr(i, L); if (dict[sub] != null) { m = sub; ml = L; mr = dict[sub]; break; } }
+    if (m) {
+      var need = false;
+      for (var c = 0; c < m.length; c++) { if (outRange(m[c])) { need = true; break; } }
+      if (need) { flush(); out.push(kidRuby(m, mr, key++)); } else { buf += m; }
+      i += ml;
+    } else {
+      var ch1 = t[i];
+      if (outRange(ch1) && KCHAR[ch1]) { flush(); out.push(kidRuby(ch1, KCHAR[ch1], key++)); }
+      else { buf += ch1; }
+      i++;
+    }
+  }
+  flush();
+  return <span>{out}</span>;
+}
+// ===== ふりがな機能ここまで =====
 function buildTodayPlan(ch, data) {
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var todayDone = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD]) || {};
@@ -624,9 +679,9 @@ function HomeTab(p) {
       <div style={{ ...S.card, background: "linear-gradient(135deg," + ch.colorLight + ",white)" }}>
         <div style={{ fontSize: 16, fontWeight: 800 }}>{ch.emoji} {ch.name}（{ch.grade}）</div>
         <div style={{ display: "flex", gap: 16, marginTop: 10, justifyContent: "center" }}>
-          <MStat l="完了" v={totalDone} c="#4CAF50" />
-          <MStat l="残り" v={totalRemain} c="#FF9800" />
-          <MStat l="学習" v={studyMin + "分"} c="#2196F3" />
+          <MStat l={<Kid t={"完了"} ch={ch} data={data} on={!isP} />} v={totalDone} c="#4CAF50" />
+          <MStat l={<Kid t={"残り"} ch={ch} data={data} on={!isP} />} v={totalRemain} c="#FF9800" />
+          <MStat l={<Kid t={"学習"} ch={ch} data={data} on={!isP} />} v={<Kid t={studyMin + "分"} ch={ch} data={data} on={!isP} />} c="#2196F3" />
           {isM && <MStat l="pt" v={pts} c="#FFB300" />}
         </div>
         {/* Time limit bar for Eishi */}
@@ -658,7 +713,7 @@ function HomeTab(p) {
       {/* Workbook progress on home */}
       {isM && (data.workbooks && data.workbooks[ch.id] || []).length > 0 && (
         <div style={S.card}>
-          <div style={S.cardTitle}>📖 問題集の進捗</div>
+          <div style={S.cardTitle}><Kid t={"📖 問題集の進捗"} ch={ch} data={data} on={!isP} /></div>
           {(data.workbooks[ch.id] || []).map(function (wb) {
             if (wb.type === "challenge") {
               var pct2 = wb.totalUnits > 0 ? Math.round((wb.doneUnits / wb.totalUnits) * 100) : 0;
@@ -666,7 +721,7 @@ function HomeTab(p) {
               return (
                 <div key={wb.id} style={{ marginBottom: 6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ fontWeight: 600 }}>{wb.name}</span>
+                    <span style={{ fontWeight: 600 }}><Kid t={wb.name} ch={ch} data={data} on={!isP} /></span>
                     <span style={{ color: allDone ? "#4CAF50" : ch.color, fontWeight: 700 }}>{allDone ? "✅" : pct2 + "%"}</span>
                   </div>
                   <div style={S.progBar}><div style={{ height: "100%", borderRadius: 3, background: ch.color, width: pct2 + "%" }} /></div>
@@ -677,7 +732,7 @@ function HomeTab(p) {
               return (
                 <div key={wb.id} style={{ marginBottom: 6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ fontWeight: 600 }}>{wb.name}</span>
+                    <span style={{ fontWeight: 600 }}><Kid t={wb.name} ch={ch} data={data} on={!isP} /></span>
                     <span style={{ color: ch.color, fontWeight: 700 }}>{pct3}%</span>
                   </div>
                   <div style={S.progBar}><div style={{ height: "100%", borderRadius: 3, background: ch.color, width: pct3 + "%" }} /></div>
@@ -690,7 +745,7 @@ function HomeTab(p) {
       {totalRemain === 0 && totalDone === 0 && plan.length === 0 && (
         <div style={{ textAlign: "center", padding: 30, color: "#bbb" }}>
           <div style={{ fontSize: 36 }}>{ch.emoji}</div>
-          <div style={{ marginTop: 6, fontWeight: 700 }}>タスクを追加して始めよう！</div>
+          <div style={{ marginTop: 6, fontWeight: 700 }}><Kid t={"タスクを追加して始めよう！"} ch={ch} data={data} on={!isP} /></div>
         </div>
       )}
     </div>
@@ -720,7 +775,7 @@ function TodayPlanCard(p) {
       var _after = sentence.slice(_idx + reading.length);
       return (
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}>下線部を漢字で書こう！</div>
+          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}><Kid t={"下線部を漢字で書こう！"} ch={ch} data={data} on={!isP} /></div>
           <div style={{ fontSize: 20, color: "#333", lineHeight: 2, letterSpacing: 1 }}>
             {_before}
             <span style={{ color: ch.color, fontWeight: 900, borderBottom: "3px solid " + ch.color, paddingBottom: 2, fontSize: 24 }}>{reading}</span>
@@ -732,7 +787,7 @@ function TodayPlanCard(p) {
     if (sentence && reading) {
       return (
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>下線部を漢字で書こう！</div>
+          <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}><Kid t={"下線部を漢字で書こう！"} ch={ch} data={data} on={!isP} /></div>
           <div style={{ fontSize: 16, color: "#555", marginBottom: 10, lineHeight: 1.8 }}>{sentence}</div>
           <div style={{ fontSize: 30, fontWeight: 900, color: ch.color, borderBottom: "3px solid " + ch.color, display: "inline-block", paddingBottom: 2, letterSpacing: 4 }}>{reading}</div>
         </div>
@@ -740,7 +795,7 @@ function TodayPlanCard(p) {
     }
     return (
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>この読みを漢字で書こう！</div>
+        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}><Kid t={"この読みを漢字で書こう！"} ch={ch} data={data} on={!isP} /></div>
         <div style={{ fontSize: 40, fontWeight: 900, color: ch.color, letterSpacing: 8 }}>{reading}</div>
       </div>
     );
@@ -1028,12 +1083,12 @@ function TodayPlanCard(p) {
       {actualRemain === 0 && allDone.length > 0 && isToday && (
         <div style={{ textAlign: "center", padding: 16 }}>
           <div style={{ fontSize: 40 }}>🎉</div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#4CAF50", marginTop: 6 }}>今日のぶん、ぜんぶ終わったよ！</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#4CAF50", marginTop: 6 }}><Kid t={"今日のぶん、ぜんぶ終わったよ！"} ch={ch} data={data} on={!isP} /></div>
         </div>
       )}
       {!isToday && !editing && actualRemain === 0 && (
         <div style={{ textAlign: "center", padding: 16, color: "#ccc" }}>
-          <div style={{ fontSize: 13 }}>{dayLabel}の予定はまだありません</div>
+          <div style={{ fontSize: 13 }}><Kid t={dayLabel + "の予定はまだありません"} ch={ch} data={data} on={!isP} /></div>
         </div>
       )}
       {/* Pending items */}
@@ -1051,8 +1106,8 @@ function TodayPlanCard(p) {
           <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #f3f3f3" }}>
             <span style={{ fontSize: 16 }}>{item.emoji}</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{item.label}</div>
-              {item.subject && <div style={{ fontSize: 10, color: "#999" }}>{item.subject}</div>}
+              <div style={{ fontSize: 13, fontWeight: 600 }}><Kid t={item.label} ch={ch} data={data} on={!isP} /></div>
+              {item.subject && <div style={{ fontSize: 10, color: "#999" }}><Kid t={item.subject} ch={ch} data={data} on={!isP} /></div>}
             </div>
           </div>
         );
@@ -1064,12 +1119,12 @@ function TodayPlanCard(p) {
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontSize: 20 }}>{item.emoji}</span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{item.label}</div>
-                    <div style={{ fontSize: 10, color: "#999" }}>{item.subject}・{item.time}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}><Kid t={item.label} ch={ch} data={data} on={!isP} /></div>
+                    <div style={{ fontSize: 10, color: "#999" }}><Kid t={item.subject} ch={ch} data={data} on={!isP} />・{item.time}</div>
                   </div>
                   {_kanjiActive.length > 0
-                    ? <button onClick={function () { setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>問題を見る ▶</button>
-                    : <span style={{ fontSize: 11, color: "#FFCC80", fontWeight: 700 }}>⚠️ 読み未設定</span>}
+                    ? <button onClick={function () { setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}><Kid t={"問題を見る ▶"} ch={ch} data={data} on={!isP} /></button>
+                    : <span style={{ fontSize: 11, color: "#FFCC80", fontWeight: 700 }}><Kid t={"⚠️ 読み未設定"} ch={ch} data={data} on={!isP} /></span>}
                 </div>
               </div>
             );
@@ -1078,33 +1133,33 @@ function TodayPlanCard(p) {
           return (
             <div key={item.id} style={{ background: "#F8F9FF", borderRadius: 14, padding: 14, marginBottom: 8, boxShadow: "0 1px 4px rgba(0,0,0,.06)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: "#aaa", fontWeight: 600 }}>{kanjiTestIdx + 1} / {_kanjiActive.length} 問目</div>
+                <div style={{ fontSize: 11, color: "#aaa", fontWeight: 600 }}>{kanjiTestIdx + 1} / {_kanjiActive.length} <Kid t={"問目"} ch={ch} data={data} on={!isP} /></div>
                 <div style={{ display: "flex", gap: 3 }}>
                   {_kanjiActive.map(function (_, i) {
                     return <div key={i} style={{ width: 7, height: 7, borderRadius: 4, background: i === kanjiTestIdx ? ch.color : "#e0e0e0" }} />;
                   })}
                 </div>
-                <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#eee", color: "#999", fontSize: 11 }}>✕ 閉じる</button>
+                <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#eee", color: "#999", fontSize: 11 }}><Kid t={"✕ 閉じる"} ch={ch} data={data} on={!isP} /></button>
               </div>
               <div style={{ padding: "10px 4px 16px", minHeight: 110 }}>
-                {_curQ ? renderKanjiQuestion(_curQ) : <div style={{ textAlign: "center", color: "#ccc" }}>問題がありません</div>}
+                {_curQ ? renderKanjiQuestion(_curQ) : <div style={{ textAlign: "center", color: "#ccc" }}><Kid t={"問題がありません"} ch={ch} data={data} on={!isP} /></div>}
               </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-                <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}>← 前の問題</button>
+                <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}><Kid t={"← 前の問題"} ch={ch} data={data} on={!isP} /></button>
                 {kanjiTestIdx < _kanjiActive.length - 1
-                  ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>次の問題 →</button>
-                  : <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}>終わり！✓</button>}
+                  ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}><Kid t={"次の問題 →"} ch={ch} data={data} on={!isP} /></button>
+                  : <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"終わり！✓"} ch={ch} data={data} on={!isP} /></button>}
               </div>
               {kanjiTestIdx === _kanjiActive.length - 1 && (
-                <div style={{ textAlign: "center", fontSize: 11, color: "#888" }}>📝 お母さんに「漢字」タブで採点してもらおう！</div>
+                <div style={{ textAlign: "center", fontSize: 11, color: "#888" }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>
               )}
             </div>
           );
         }
         if (item.action === "custom") {
-          return <PlanItem key={item.id} item={item} ch={ch} data={data} save={save} checkPlanItem={function (it) { checkCustom(it); }} />;
+          return <PlanItem key={item.id} item={item} ch={ch} data={data} save={save} checkPlanItem={function (it) { checkCustom(it); }} isP={isP} />;
         }
-        return <PlanItem key={item.id} item={item} ch={ch} data={data} save={save} checkPlanItem={checkPlanItem} />;
+        return <PlanItem key={item.id} item={item} ch={ch} data={data} save={save} checkPlanItem={checkPlanItem} isP={isP} />;
       })}
       {/* Hidden items (show in edit mode) */}
       {editing && isToday && hidden.length > 0 && (
@@ -1225,7 +1280,7 @@ function TodayPlanCard(p) {
                 <div style={{ width: 28, height: 28, borderRadius: 14, background: "#4CAF50", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>✓</span>
                 </div>
-                <div style={{ flex: 1, fontSize: 13, textDecoration: "line-through" }}>{item.label}</div>
+                <div style={{ flex: 1, fontSize: 13, textDecoration: "line-through" }}><Kid t={item.label} ch={ch} data={data} on={!isP} /></div>
                 {elapsed > 0 && <div style={{ fontSize: 11, color: "#999" }}>{Math.floor(elapsed / 60)}分{elapsed % 60}秒</div>}
               </div>
             );
@@ -1238,7 +1293,7 @@ function TodayPlanCard(p) {
 // ═══ PLAN ITEM with Start/Pause/Resume/Complete/Partial/Stop ═══
 // Timer state persisted in data._timers so switching child tabs doesn't lose it
 function PlanItem(p) {
-  var item = p.item, ch = p.ch, data = p.data, save = p.save, checkPlanItem = p.checkPlanItem;
+  var item = p.item, ch = p.ch, data = p.data, save = p.save, checkPlanItem = p.checkPlanItem, isP = p.isP;
   var timerKey = ch.id + "_" + item.id;
   var stored = (data._timers && data._timers[timerKey]) || null;
   const [display, setDisplay] = useState(0);
@@ -1321,9 +1376,9 @@ function PlanItem(p) {
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 32, height: 32, borderRadius: 10, background: ch.color + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{item.emoji}</div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "#333" }}>{item.label}</div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#333" }}><Kid t={item.label} ch={ch} data={data} on={!isP} /></div>
           <div style={{ fontSize: 11, color: "#aaa" }}>
-            {item.subject}{item.time ? " ・ " + item.time : ""}
+            <Kid t={item.subject} ch={ch} data={data} on={!isP} />{item.time ? " ・ " + item.time : ""}
             <span style={{ marginLeft: 4, color: "#FFB300", fontWeight: 700 }}>+{item.action === "test" ? 2 : 1}pt</span>
           </div>
           {item.note && <div style={{ fontSize: 10, color: "#FF9800", marginTop: 2 }}>📝 {item.note}</div>}
@@ -2403,7 +2458,7 @@ function ReviewTab(p) {
       </div>
       {/* Workbook Progress */}
       <div style={S.card}>
-        <div style={S.cardTitle}>📖 問題集の進捗</div>
+        <div style={S.cardTitle}><Kid t={"📖 問題集の進捗"} ch={ch} data={data} on={!isP} /></div>
         {wbs.map(function (wb) {
           if (wb.type === "challenge") {
             var total = wb.totalUnits + (wb.hasTest ? 1 : 0);
