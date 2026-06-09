@@ -2935,6 +2935,15 @@ function KanjiTab(p) {
   var completed = allKanji.filter(function (k) { return k.completed; });
   var todayDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   const [testState, setTestState] = useState(null);
+  const [gradeDate, setGradeDate] = useState(function () {
+    for (var dd = 0; dd < 7; dd++) {
+      var dt = new Date(NOW); dt.setDate(dt.getDate() - dd);
+      var ds = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+      var graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds] && data.todayChecks[ch.id][ds]["kanji_test"]);
+      if (!graded && kanjiDailyQueue(allKanji, ds).length > 0) return ds;
+    }
+    return TD;
+  });
   const [editId, setEditId] = useState(null);
   const [editReading, setEditReading] = useState("");
   const [editSentence, setEditSentence] = useState("");
@@ -2956,9 +2965,9 @@ function KanjiTab(p) {
 
   // テスト開始：読みが設定されている語のみ対象
   var startTest = function () {
-    var queue = kanjiDailyQueue(allKanji, TD);
+    var queue = kanjiDailyQueue(allKanji, gradeDate);
     if (queue.length === 0) return;
-    setTestState({ queue: queue, idx: 0, results: {} });
+    setTestState({ queue: queue, idx: 0, results: {}, date: gradeDate });
   };
 
   var answerTest = function (correct) {
@@ -2969,6 +2978,7 @@ function KanjiTab(p) {
     var nextIdx = ts.idx + 1;
     if (nextIdx >= ts.queue.length) {
       var d = clone(data);
+      var gd = ts.date || TD;
       if (!d.kanjiList) d.kanjiList = {};
       if (!d.kanjiList[ch.id]) d.kanjiList[ch.id] = [];
       ts.queue.forEach(function (qItem) {
@@ -2982,12 +2992,12 @@ function KanjiTab(p) {
       });
       if (!d.todayChecks) d.todayChecks = {};
       if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
-      if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
-      d.todayChecks[ch.id][TD]["kanji_test"] = true;
+      if (!d.todayChecks[ch.id][gd]) d.todayChecks[ch.id][gd] = {};
+      d.todayChecks[ch.id][gd]["kanji_test"] = true;
       ensurePts(d, ch.id);
       var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
       d.points[ch.id].balance += ptAmt;
-      d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: "漢字テスト完了", date: TD, id: "kp" + Date.now() });
+      d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: "漢字テスト完了", date: gd, id: "kp" + Date.now() });
       save(d);
       setTestState({ queue: ts.queue, idx: nextIdx, results: newResults, done: true });
     } else {
@@ -3043,6 +3053,18 @@ function KanjiTab(p) {
   };
 
   var testableCount = active.filter(function (k) { return k.reading && k.reading.trim(); }).length;
+  // 採点できる日の候補（直近7日で、出題できる語があるか、すでに採点済みの日）
+  var gradeDays = [];
+  for (var _gd = 0; _gd < 7; _gd++) {
+    var _dt = new Date(NOW); _dt.setDate(_dt.getDate() - _gd);
+    var _ds = _dt.getFullYear() + "-" + String(_dt.getMonth() + 1).padStart(2, "0") + "-" + String(_dt.getDate()).padStart(2, "0");
+    var _q = kanjiDailyQueue(allKanji, _ds);
+    var _graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_ds] && data.todayChecks[ch.id][_ds]["kanji_test"]);
+    if (_q.length > 0 || _graded) gradeDays.push({ date: _ds, label: _gd === 0 ? "今日" : _gd === 1 ? "きのう" : (_dt.getMonth() + 1) + "/" + _dt.getDate(), count: _q.length, graded: _graded });
+  }
+  var selQueue = kanjiDailyQueue(allKanji, gradeDate);
+  var selCount = selQueue.length;
+  var selDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][gradeDate] && data.todayChecks[ch.id][gradeDate]["kanji_test"]);
   var noReadingCount = active.filter(function (k) { return !k.reading || !k.reading.trim(); }).length;
 
   return (
@@ -3152,21 +3174,33 @@ function KanjiTab(p) {
                   ⚠️ {noReadingCount}語に読みが未設定です。上のリスト「✏️ 設定」から読み・例文を入力してください。
                 </div>
               )}
-              {todayDone ? (
-                <div style={{ textAlign: "center", padding: 16, color: "#4CAF50", fontSize: 13, fontWeight: 700 }}>✅ 今日のテストは完了しています</div>
-              ) : testableCount === 0 ? (
-                <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 12 }}>出題できる語がありません。読みを設定してください。</div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.8 }}>
-                    例文の下線部を漢字で紙に書いてもらい、正誤を判定してください。<br />
-                    <strong>2回連続正解</strong>で定着完了です。
+              {gradeDays.length > 1 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>採点する日（当日にできなくても、あとから採点できます）</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {gradeDays.map(function (gdy) {
+                      return <button key={gdy.date} onClick={function () { setGradeDate(gdy.date); }} style={{ ...S.smBtn, background: gdy.date === gradeDate ? ch.color : "#f0f0f0", color: gdy.date === gradeDate ? "#fff" : "#666" }}>{gdy.label}{gdy.graded ? " ✓" : "（" + gdy.count + "）"}</button>;
+                    })}
                   </div>
-                  <button onClick={startTest} style={{ ...S.subBtn, background: ch.color }}>
-                    🎯 テスト開始（{Math.min(10, testableCount)}問）
-                  </button>
                 </div>
               )}
+              {(function () {
+                var _sel = gradeDays.find(function (g) { return g.date === gradeDate; });
+                var selLabel = _sel ? _sel.label : "今日";
+                if (selDone) return <div style={{ textAlign: "center", padding: 16, color: "#4CAF50", fontSize: 13, fontWeight: 700 }}>✅ {selLabel}のテストは採点ずみです</div>;
+                if (selCount === 0) return <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 12 }}>{selLabel}は出題できる語がありません。読みを設定してください。</div>;
+                return (
+                  <div>
+                    <div style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.8 }}>
+                      <strong>{selLabel}</strong>のテストを採点します。例文の下線部を漢字で紙に書いてもらい、正誤を判定してください。<br />
+                      <strong>2回連続正解</strong>で定着完了です。
+                    </div>
+                    <button onClick={startTest} style={{ ...S.subBtn, background: ch.color }}>
+                      🎯 {selLabel}のテストを採点（{selCount}問）
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           ) : testState.done ? (
             <div>
