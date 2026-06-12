@@ -2064,6 +2064,13 @@ function ReviewTab(p) {
   const [editLogId, setEditLogId] = useState(null);
   const [editMin, setEditMin] = useState("");
   const [editSec, setEditSec] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addWbId, setAddWbId] = useState("");
+  const [addLabel, setAddLabel] = useState("");
+  const [addSubj, setAddSubj] = useState(ch.subjects[0] || "");
+  const [addWbPages, setAddWbPages] = useState("2");
+  const [addMin, setAddMin] = useState("");
+  const [addSec, setAddSec] = useState("");
   var viewDate = new Date(NOW.getFullYear(), NOW.getMonth() + monthOffset, 1);
   var viewYear = viewDate.getFullYear();
   var viewMonth = viewDate.getMonth();
@@ -2226,6 +2233,61 @@ function ReviewTab(p) {
     // studyLogs から削除
     dd.studyLogs[ch.id] = dd.studyLogs[ch.id].filter(function (l) { return l.id !== logId; });
     save(dd);
+  };
+  // 2026-06-06: ふりかえりから学習記録を追加（問題集から選択可・ポイント加算・問題集進捗反映・metaで削除時に巻き戻し可）
+  var addRecord = function () {
+    if (!selectedDay) return;
+    var d = clone(data);
+    var date = selectedDay;
+    if (!d.studyLogs) d.studyLogs = {};
+    if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
+    if (!d.todayChecks) d.todayChecks = {};
+    if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
+    if (!d.todayChecks[ch.id][date]) d.todayChecks[ch.id][date] = {};
+    if (!d.workbooks) d.workbooks = {};
+    if (!d.workbooks[ch.id]) d.workbooks[ch.id] = [];
+    ensurePts(d, ch.id);
+    var _pc = d._pointConfig || {};
+    var label, subject = "", wbAction = null, pages = 0, ptAmt, wbId = null;
+    if (addWbId) {
+      var wb = d.workbooks[ch.id].find(function (w) { return w.id === addWbId; });
+      if (!wb) return;
+      wbId = wb.id; subject = wb.subject;
+      if (wb.type === "challenge") {
+        var unitsLeft = (wb.doneUnits || 0) < (wb.totalUnits || 0);
+        var testLeft = !unitsLeft && wb.hasTest && !wb.testDone;
+        if (unitsLeft) { wbAction = "unit"; label = wb.name + " 第" + ((wb.doneUnits || 0) + 1) + "回"; ptAmt = _pc.chalUnit || 1; }
+        else if (testLeft) { wbAction = "test"; label = wb.name + " テスト"; ptAmt = _pc.chalTest || 2; }
+        else { return; }
+      } else {
+        wbAction = "pages"; pages = parseInt(addWbPages) || 2; label = wb.name + " " + pageLabel(wb, pages); ptAmt = _pc.pageDone || 1;
+      }
+    } else {
+      if (!addLabel.trim()) return;
+      label = addLabel.trim(); subject = addSubj; ptAmt = _pc.taskDone || 1;
+    }
+    var seconds = Math.max(0, (parseInt(addMin) || 0) * 60 + (parseInt(addSec) || 0));
+    var recId = "rec" + Date.now();
+    var ptHistoryId = "cp" + Date.now();
+    var checkKey = "custom_" + recId;
+    d.todayChecks[ch.id][date][checkKey] = true;
+    d.points[ch.id].balance += ptAmt;
+    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: label + " 完了", date: date, id: ptHistoryId });
+    var wbAdvance, wbChallengeUndo;
+    if (wbId) {
+      var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
+      if (target) {
+        if (wbAction === "unit") { target.doneUnits = Math.min(target.totalUnits || 0, (target.doneUnits || 0) + 1); wbChallengeUndo = { wbId: wbId, wbAction: "unit" }; }
+        else if (wbAction === "test") { target.testDone = true; wbChallengeUndo = { wbId: wbId, wbAction: "test" }; }
+        else if (wbAction === "pages") { target.donePages = Math.min(target.totalPages || 0, (target.donePages || 0) + pages); wbAdvance = { wbId: wbId, pages: pages }; }
+      }
+    }
+    d.studyLogs[ch.id].push({
+      id: recId, date: date, seconds: seconds, title: label, subject: subject || "",
+      meta: { checkKey: checkKey, checkDate: date, ptAwarded: ptAmt, ptHistoryId: ptHistoryId, wbAdvance: wbAdvance, wbChallengeUndo: wbChallengeUndo, isPartial: false }
+    });
+    save(d);
+    setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin(""); setAddSec(""); setAddWbPages("2");
   };
   var addManualLog = function () {
     var dd = clone(data);
@@ -2425,10 +2487,65 @@ function ReviewTab(p) {
               </div>
             );
           })}
-          {isP && (
-            <button onClick={addManualLog} style={{ width: "100%", marginTop: 8, padding: 8, borderRadius: 8, border: "2px dashed " + ch.color + "40", background: "transparent", fontSize: 12, fontWeight: 700, color: ch.color, cursor: "pointer" }}>
-              ＋ 学習記録を手動で追加
+          {isP && !addOpen && (
+            <button onClick={function () { setAddOpen(true); setAddSubj(ch.subjects[0] || ""); }} style={{ width: "100%", marginTop: 8, padding: 8, borderRadius: 8, border: "2px dashed " + ch.color + "40", background: "transparent", fontSize: 12, fontWeight: 700, color: ch.color, cursor: "pointer" }}>
+              ＋ 学習記録を追加
             </button>
+          )}
+          {isP && addOpen && (
+            <div style={{ marginTop: 8, padding: 10, background: "#f9f9f9", borderRadius: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 6 }}>＋ {selectedDayLabel}の学習記録を追加</div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <button onClick={function () { setAddWbId(""); }} style={{ ...S.smBtn, background: !addWbId ? ch.color : "#f0f0f0", color: !addWbId ? "#fff" : "#666", flex: 1 }}>自由入力</button>
+                <button onClick={function () { setAddWbId(wbs.length > 0 ? wbs[0].id : ""); }} style={{ ...S.smBtn, background: addWbId ? ch.color : "#f0f0f0", color: addWbId ? "#fff" : "#666", flex: 1 }}>問題集から</button>
+              </div>
+              {addWbId ? (
+                <div>
+                  <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 6 }}>
+                    {wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}（{wb.subject}）</option>; })}
+                  </select>
+                  {(function () {
+                    var selWb = wbs.find(function (w) { return w.id === addWbId; });
+                    if (!selWb) return null;
+                    if (selWb.type === "challenge") {
+                      var unitsLeft = (selWb.doneUnits || 0) < (selWb.totalUnits || 0);
+                      var testLeft = !unitsLeft && selWb.hasTest && !selWb.testDone;
+                      var msg, isDone = false;
+                      if (unitsLeft) msg = "📕 「第" + ((selWb.doneUnits || 0) + 1) + "回」を記録します";
+                      else if (testLeft) msg = "📝 「テスト」を記録します";
+                      else { msg = "✅ この問題集はすべて完了しています"; isDone = true; }
+                      return <div style={{ fontSize: 11, color: isDone ? "#aaa" : "#555", marginBottom: 6, padding: "8px 10px", background: isDone ? "#f5f5f5" : "#FFFDE7", borderRadius: 8, lineHeight: 1.5 }}>{msg}</div>;
+                    }
+                    return (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, color: "#666" }}>ページ数</span>
+                        <input type="number" value={addWbPages} onChange={function (e) { setAddWbPages(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div style={{ marginBottom: 6 }}>
+                  <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 算数のプリント" style={{ ...S.input, marginBottom: 6 }} />
+                  <select value={addSubj} onChange={function (e) { setAddSubj(e.target.value); }} style={{ ...S.input }}>
+                    {ch.subjects.map(function (sj) { return <option key={sj} value={sj}>{sj}</option>; })}
+                    <option value="">なし</option>
+                  </select>
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: "#666" }}>学習時間</span>
+                <input type="number" value={addMin} onChange={function (e) { setAddMin(e.target.value); }} placeholder="0" style={{ ...S.input, width: 50, textAlign: "center" }} />
+                <span style={{ fontSize: 11, color: "#999" }}>分</span>
+                <input type="number" value={addSec} onChange={function (e) { setAddSec(e.target.value); }} placeholder="0" style={{ ...S.input, width: 50, textAlign: "center" }} />
+                <span style={{ fontSize: 11, color: "#999" }}>秒</span>
+              </div>
+              <div style={{ fontSize: 10, color: "#999", marginBottom: 8, lineHeight: 1.5 }}>※ 追加すると問題集の進捗が進み、ポイントも加算されます（🗑で削除すると取り消されます）。</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={function () { setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin(""); setAddSec(""); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>✕</button>
+                <button onClick={addRecord} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>追加</button>
+              </div>
+            </div>
           )}
           {isP && (dayDetail.logs.length > 0 || dayDetail.doneCount > 0) && (
             <button onClick={resetDay} style={{ width: "100%", marginTop: 6, padding: 8, borderRadius: 8, border: "1.5px solid #E53935", background: "#fff", fontSize: 11, fontWeight: 700, color: "#E53935", cursor: "pointer" }}>
