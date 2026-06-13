@@ -1150,7 +1150,7 @@ function TodayPlanCard(p) {
                 <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}><Kid t={"← 前の問題"} ch={ch} data={data} on={!isP} /></button>
                 {kanjiTestIdx < _kanjiActive.length - 1
                   ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}><Kid t={"次の問題 →"} ch={ch} data={data} on={!isP} /></button>
-                  : <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>}
+                  : <button onClick={function () { var d = clone(data); if (!d.todayChecks) d.todayChecks = {}; if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {}; if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {}; d.todayChecks[ch.id][TD]["kanji_test"] = true; save(d); setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>}
               </div>
               {kanjiTestIdx === _kanjiActive.length - 1 && (
                 <div style={{ textAlign: "center", fontSize: 11, color: "#888" }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>
@@ -2085,7 +2085,7 @@ function ReviewTab(p) {
     var dayLogs = logs.filter(function (l) { return l.date === ds; });
     var daySec = dayLogs.reduce(function (s, l) { return s + l.seconds; }, 0);
     var dayChecks = checks[ds] || {};
-    var doneCount = Object.keys(dayChecks).filter(function (k) { return k !== "_plan" && !k.startsWith("time_") && dayChecks[k] === true; }).length;
+    var doneCount = Object.keys(dayChecks).filter(function (k) { return k !== "_plan" && k !== "kanji_graded" && !k.startsWith("time_") && dayChecks[k] === true; }).length;
     monthDays.push({ date: ds, day: d, sec: daySec, count: doneCount, logs: dayLogs });
   }
   var monthLogs = logs.filter(function (l) {
@@ -2096,7 +2096,7 @@ function ReviewTab(p) {
   for (var dd = 1; dd <= daysInMonth; dd++) {
     var dds = viewYear + "-" + String(viewMonth + 1).padStart(2, "0") + "-" + String(dd).padStart(2, "0");
     var dc = checks[dds] || {};
-    monthTaskCount += Object.keys(dc).filter(function (k) { return k !== "_plan" && !k.startsWith("time_") && dc[k] === true; }).length;
+    monthTaskCount += Object.keys(dc).filter(function (k) { return k !== "_plan" && k !== "kanji_graded" && !k.startsWith("time_") && dc[k] === true; }).length;
   }
   var activeDays = monthDays.filter(function (d) { return d && (d.sec > 0 || d.count > 0); }).length;
   var canGoBack = monthOffset > -11;
@@ -2112,7 +2112,7 @@ function ReviewTab(p) {
       var wLogs = logs.filter(function (l) { return l.date === wds; });
       wSec += wLogs.reduce(function (s, l) { return s + l.seconds; }, 0);
       var wChecks = checks[wds] || {};
-      wCount += Object.keys(wChecks).filter(function (k) { return k !== "_plan" && !k.startsWith("time_") && wChecks[k] === true; }).length;
+      wCount += Object.keys(wChecks).filter(function (k) { return k !== "_plan" && k !== "kanji_graded" && !k.startsWith("time_") && wChecks[k] === true; }).length;
     }
     weeklyData.push({ label: weekStart + "〜" + weekEnd + "日", sec: wSec, count: wCount });
     weekStart = weekEnd + 1;
@@ -2123,7 +2123,7 @@ function ReviewTab(p) {
   if (selectedDay) {
     var sdLogs = logs.filter(function (l) { return l.date === selectedDay; });
     var sdChecks = checks[selectedDay] || {};
-    var sdDoneCount = Object.keys(sdChecks).filter(function (k) { return k !== "_plan" && !k.startsWith("time_") && sdChecks[k] === true; }).length;
+    var sdDoneCount = Object.keys(sdChecks).filter(function (k) { return k !== "_plan" && k !== "kanji_graded" && !k.startsWith("time_") && sdChecks[k] === true; }).length;
     var sdSec = sdLogs.reduce(function (s, l) { return s + l.seconds; }, 0);
     dayDetail = { date: selectedDay, logs: sdLogs, doneCount: sdDoneCount, totalSec: sdSec };
   }
@@ -3058,7 +3058,7 @@ function KanjiTab(p) {
     for (var dd = 0; dd < 7; dd++) {
       var dt = new Date(NOW); dt.setDate(dt.getDate() - dd);
       var ds = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
-      var graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds] && data.todayChecks[ch.id][ds]["kanji_test"]);
+      var graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds] && data.todayChecks[ch.id][ds]["kanji_graded"]);
       if (!graded && kanjiDailyQueue(allKanji, ds).length > 0) return ds;
     }
     return TD;
@@ -3123,6 +3123,7 @@ function KanjiTab(p) {
     if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
     if (!d.todayChecks[ch.id][gd]) d.todayChecks[ch.id][gd] = {};
     d.todayChecks[ch.id][gd]["kanji_test"] = true;
+    d.todayChecks[ch.id][gd]["kanji_graded"] = true;
     ensurePts(d, ch.id);
     var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
     d.points[ch.id].balance += ptAmt;
@@ -3185,12 +3186,12 @@ function KanjiTab(p) {
     var _dt = new Date(NOW); _dt.setDate(_dt.getDate() - _gd);
     var _ds = _dt.getFullYear() + "-" + String(_dt.getMonth() + 1).padStart(2, "0") + "-" + String(_dt.getDate()).padStart(2, "0");
     var _q = kanjiDailyQueue(allKanji, _ds);
-    var _graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_ds] && data.todayChecks[ch.id][_ds]["kanji_test"]);
+    var _graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_ds] && data.todayChecks[ch.id][_ds]["kanji_graded"]);
     if (_q.length > 0 || _graded) gradeDays.push({ date: _ds, label: _gd === 0 ? "今日" : _gd === 1 ? "きのう" : (_dt.getMonth() + 1) + "/" + _dt.getDate(), count: _q.length, graded: _graded });
   }
   var selQueue = kanjiDailyQueue(allKanji, gradeDate);
   var selCount = selQueue.length;
-  var selDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][gradeDate] && data.todayChecks[ch.id][gradeDate]["kanji_test"]);
+  var selDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][gradeDate] && data.todayChecks[ch.id][gradeDate]["kanji_graded"]);
   var noReadingCount = active.filter(function (k) { return !k.reading || !k.reading.trim(); }).length;
 
   return (
