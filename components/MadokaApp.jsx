@@ -1150,7 +1150,7 @@ function TodayPlanCard(p) {
                 <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}><Kid t={"← 前の問題"} ch={ch} data={data} on={!isP} /></button>
                 {kanjiTestIdx < _kanjiActive.length - 1
                   ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}><Kid t={"次の問題 →"} ch={ch} data={data} on={!isP} /></button>
-                  : <button onClick={function () { var d = clone(data); if (!d.todayChecks) d.todayChecks = {}; if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {}; if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {}; d.todayChecks[ch.id][TD]["kanji_test"] = true; save(d); setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>}
+                  : <button onClick={function () { var d = clone(data); if (!d.todayChecks) d.todayChecks = {}; if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {}; if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {}; d.todayChecks[ch.id][TD]["kanji_test"] = true; d.todayChecks[ch.id][TD]["label_kanji_test"] = item.label; save(d); setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>}
               </div>
               {kanjiTestIdx === _kanjiActive.length - 1 && (
                 <div style={{ textAlign: "center", fontSize: 11, color: "#888" }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>
@@ -3124,6 +3124,7 @@ function KanjiTab(p) {
     if (!d.todayChecks[ch.id][gd]) d.todayChecks[ch.id][gd] = {};
     d.todayChecks[ch.id][gd]["kanji_test"] = true;
     d.todayChecks[ch.id][gd]["kanji_graded"] = true;
+    d.todayChecks[ch.id][gd]["label_kanji_test"] = "漢字テスト（" + ts.queue.length + "問）";
     ensurePts(d, ch.id);
     var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
     d.points[ch.id].balance += ptAmt;
