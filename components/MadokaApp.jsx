@@ -553,17 +553,22 @@ function WeekPlanCard(p) {
   var totalMin = tasks.reduce(function (s, t) { return s + (t.estMin || 0); }, 0);
   var doneMin = info.reduce(function (s, x) { return s + (x.doneDate ? (x.t.estMin || 0) : 0); }, 0);
   var pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
-  // 残りタスクを残り日数で均等割り（その日の中では固定：今日やった分を足し戻して当日枠を一定にする）
+  // 残りを残り日数で均等割り。day<=今日（今日指定・繰越・手動追加）は必ず今日に入れ、足りない分だけ先の日から補う。
   var daysLeft = Math.max(1, 7 - todayIdx);
-  var undoneCount = totalCount - doneCount;
+  var undone = info.filter(function (x) { return !x.doneDate; });
   var doneTodayCount = info.filter(function (x) { return x.doneDate === TD; }).length;
-  var quota = Math.ceil((undoneCount + doneTodayCount) / daysLeft);
-  var todayRemainNeed = Math.max(0, quota - doneTodayCount);
+  var targetCount = Math.ceil((undone.length + doneTodayCount) / daysLeft);
+  var stillNeed = Math.max(0, targetCount - doneTodayCount);
+  var dueToday = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) <= todayIdx; });
+  var future = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) > todayIdx; });
+  var extra = Math.max(0, stillNeed - dueToday.length);
+  var todayList = dueToday.concat(future.slice(0, extra));
+  var laterList = future.slice(extra);
   var advice = null, adviceBg = "#FFFDE7", adviceColor = "#8a6d00";
   if (totalCount > 0) {
     if (doneCount >= totalCount) { advice = "🎉 今週のタスク、ぜんぶ終わったよ！すごい！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
-    else if (todayRemainNeed <= 0) { advice = "✨ 今日のぶんはおわったよ！この調子！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
-    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = "📌 のこり" + undoneCount + "個をあと" + daysLeft + "日でわけたよ。今日はあと" + todayRemainNeed + "個やろう！"; }
+    else if (todayList.length === 0) { advice = "✨ 今日のぶんはおわったよ！この調子！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
+    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = "📌 のこり" + undone.length + "個をあと" + daysLeft + "日でわけたよ。今日はあと" + todayList.length + "個やろう！"; }
   }
   var completeTask = function (t) {
     var d = clone(data);
@@ -669,10 +674,7 @@ function WeekPlanCard(p) {
     save(d);
     setKanjiInput(""); setKanjiAddOpen(false);
   };
-  var undone = info.filter(function (x) { return !x.doneDate; });
   var doneList = info.filter(function (x) { return x.doneDate; });
-  var todayList = undone.slice(0, todayRemainNeed);
-  var laterList = undone.slice(todayRemainNeed);
   // 漢字テスト（毎日の習慣。週カードの「今日のやること」に統合表示）
   var kanjiActive = kanjiDailyQueue((data.kanjiList && data.kanjiList[ch.id]) || [], TD);
   var kanjiDue = kanjiActive.length > 0;
@@ -796,9 +798,8 @@ function WeekPlanCard(p) {
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ まちがえた漢字の練習を追加</div>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
                     {weekDatesOf(weekKey).map(function (dd, di) {
-                      if (di < todayIdx) return null;
-                      var lbl = di === todayIdx ? "今日" : di === todayIdx + 1 ? "明日" : dayNames[di] + "よう日";
-                      return <button key={di} onClick={function () { setKanjiAddDay(di); }} style={{ ...S.smBtn, background: kanjiAddDay === di ? ch.color : "#f0f0f0", color: kanjiAddDay === di ? "#fff" : "#666", fontSize: 11 }}>{lbl}</button>;
+                      var lbl = di === todayIdx ? "今日" : dayNames[di];
+                      return <button key={di} onClick={function () { setKanjiAddDay(di); }} style={{ ...S.smBtn, background: kanjiAddDay === di ? ch.color : "#f0f0f0", color: kanjiAddDay === di ? "#fff" : "#666", fontSize: 11, minWidth: 34, padding: "6px 8px" }}>{lbl}</button>;
                     })}
                   </div>
                   <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, marginBottom: 6 }} />
