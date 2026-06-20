@@ -556,17 +556,17 @@ function WeekPlanCard(p) {
   var doneCount = info.filter(function (x) { return x.doneDate; }).length;
   var totalMin = tasks.reduce(function (s, t) { return s + (t.estMin || 0); }, 0);
   var doneMin = info.reduce(function (s, x) { return s + (x.doneDate ? (x.t.estMin || 0) : 0); }, 0);
-  var remainMin = Math.max(0, totalMin - doneMin);
-  var pct = totalMin > 0 ? Math.round(doneMin / totalMin * 100) : 0;
+  var pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
   var daysLeft = 7 - todayIdx;
-  var perDay = daysLeft > 0 ? Math.ceil(remainMin / daysLeft) : remainMin;
-  var todayTargetMin = info.filter(function (x) { return !x.doneDate && x.t.day === todayIdx; }).reduce(function (s, x) { return s + (x.t.estMin || 0); }, 0);
-  var expected = totalMin * (todayIdx + 1) / 7;
+  var remainCount = totalCount - doneCount;
+  var perDayCount = daysLeft > 0 ? Math.ceil(remainCount / daysLeft) : remainCount;
+  var todayTargetCount = info.filter(function (x) { return !x.doneDate && x.t.day === todayIdx; }).length;
+  var expectedCount = totalCount * (todayIdx + 1) / 7;
   var advice = null, adviceBg = "#FFFDE7", adviceColor = "#8a6d00";
   if (totalCount > 0) {
     if (doneCount >= totalCount) { advice = "🎉 今週のタスク、ぜんぶ終わったよ！すごい！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
-    else if (doneMin >= expected) { advice = "✨ いいペース！このペースなら週末（土・日）はゆっくりできそうだよ。"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
-    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = (todayIdx < 5) ? ("⏰ このままだと週末に約" + fmt(remainMin) + "勉強することになりそう。今日はあと" + fmt(todayTargetMin > 0 ? todayTargetMin : perDay) + "やっておくとラクだよ！") : ("⏰ あと" + fmt(remainMin) + "のこってるよ。今日がんばろう！"); }
+    else if (doneCount >= expectedCount) { advice = "✨ いいペース！このペースなら週末（土・日）はゆっくりできそうだよ。"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
+    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = (todayIdx < 5) ? ("⏰ このままだと週末に約" + remainCount + "個やることになりそう。今日はあと" + (todayTargetCount > 0 ? todayTargetCount : perDayCount) + "個やっておくとラクだよ！") : ("⏰ あと" + remainCount + "個のこってるよ。今日がんばろう！"); }
   }
   var completeTask = function (t) {
     var d = clone(data);
@@ -657,7 +657,7 @@ function WeekPlanCard(p) {
         <span style={{ fontSize: 16 }}>{emojiOf(t.action)}</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}><Kid t={t.label} ch={ch} data={data} on={!isP} /></div>
-          <div style={{ fontSize: 10, color: "#999" }}>{t.subject ? <span><Kid t={t.subject} ch={ch} data={data} on={!isP} />・</span> : null}{fmt(t.estMin || 0)}</div>
+          <div style={{ fontSize: 10, color: "#999" }}><Kid t={t.subject} ch={ch} data={data} on={!isP} /></div>
         </div>
         {isP && <button onClick={function () { removeTask(t.id); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#ddd" }}>🗑</button>}
       </div>
@@ -677,7 +677,7 @@ function WeekPlanCard(p) {
       ) : (
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
-            <span style={{ fontWeight: 700, color: ch.color }}>{doneCount}/{totalCount}<Kid t={"個"} ch={ch} data={data} on={!isP} />・{fmt(doneMin)}/{fmt(totalMin)}</span>
+            <span style={{ fontWeight: 700, color: ch.color }}>{doneCount}/{totalCount}<Kid t={"個"} ch={ch} data={data} on={!isP} /></span>
             <span style={{ color: "#aaa" }}>{pct}%</span>
           </div>
           <div style={S.progBar}><div style={{ height: "100%", borderRadius: 3, background: ch.color, width: pct + "%", transition: "width .4s" }} /></div>
