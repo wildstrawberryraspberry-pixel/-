@@ -117,7 +117,8 @@ export default function App() {
         if (!p.tests) p.tests = {};
         if (!p._dailySelections) p._dailySelections = {}; // 2026-05-19 B案
         if (!p.kanjiList) p.kanjiList = {}; // 2026-05-24 間違えた漢字リスト
-        if (!p.kanjiHistory) p.kanjiHistory = {}; // 2026-05-24 漢字練習履歴
+        if (!p.kanjiHistory) p.kanjiHistory = {};
+        if (!p.weekPlan) p.weekPlan = {}; // 2026-06-06 週プール // 2026-05-24 漢字練習履歴
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -429,57 +430,14 @@ function buildTodayPlan(ch, data) {
       }
     }
   } else if (ch.id === "eishi") {
-    plan.push({ id: "today_smile", label: "スマイルゼミ", subject: "", time: "", action: "smile", emoji: "📱", done: !!todayDone["smile"] });
-    var nc = 0;
-    if (nc < maxNew) {
-      var chal = wbs.filter(function (w) { return w.type === "challenge" && (w.doneUnits < w.totalUnits || (w.hasTest && !w.testDone)); });
-      if (chal.length > 0) {
-        var pick = pickWithPriority(chal, ch, "chal", dayOfYear, data);
-        if (pick.doneUnits < pick.totalUnits) {
-          plan.push({ id: "today_chal_" + pick.id, label: pick.name + " 第" + (pick.doneUnits + 1) + "回", subject: pick.subject, time: "15分", wbId: pick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + pick.id] });
-          nc++;
-        } else if (pick.hasTest && !pick.testDone) {
-          plan.push({ id: "today_chaltest_" + pick.id, label: pick.name + " テスト", subject: pick.subject, time: "15分", wbId: pick.id, action: "test", emoji: "📝", done: !!todayDone["chaltest_" + pick.id] });
-          nc++;
-        }
-      }
-    }
-    if (nc < maxNew) {
-      var kanji = wbs.find(function (w) { return w.dailyPages && (w.donePages || 0) < w.totalPages; });
-      if (kanji) {
-        plan.push({ id: "today_kanji", label: todayDone["label_kanji"] || (kanji.name + " " + pageLabel(kanji, kanji.dailyPages)), subject: kanji.subject, time: (kanji.dailyPages * (kanji.minPerPage || 5)) + "分", wbId: kanji.id, action: "pages", pages: kanji.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
-        nc++;
-      }
-    }
-    if (nc < maxNew) {
-      var pit = wbs.filter(function (w) { return w.type === "pages" && !w.dailyPages && (w.donePages || 0) < w.totalPages; });
-      if (pit.length > 0) {
-        var pp = pickWithPriority(pit, ch, "pit", dayOfYear, data);
-        plan.push({ id: "today_pit_" + pp.id, label: todayDone["label_pit_" + pp.id] || (pp.name + " " + pageLabel(pp, 2)), subject: pp.subject, time: (2 * (pp.minPerPage || 3)) + "分", wbId: pp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + pp.id] });
-        nc++;
-      }
-    }
+    // 2026-06-06 週プール制: 叡志の学習タスクは WeekPlanCard で管理（日次では出さない）
     // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
     var eisKanjiActive = ((data.kanjiList && data.kanjiList["eishi"]) || []).filter(function (k) { return isKanjiDue(k, TD); });
     if (eisKanjiActive.length > 0) {
       plan.push({ id: "today_kanji_test", label: "漢字テスト（" + Math.min(10, eisKanjiActive.length) + "問）", subject: "国語", time: "10分", action: "kanji_test", emoji: "🎯", done: !!todayDone["kanji_test"] });
     }
   } else if (ch.id === "yuzuki") {
-    plan.push({ id: "today_smile", label: "スマイルゼミ", subject: "", time: "", action: "smile", emoji: "📱", done: !!todayDone["smile"] });
-    var yc = wbs.filter(function (w) { return w.type === "challenge" && (w.doneUnits < w.totalUnits || (w.hasTest && !w.testDone)); });
-    if (yc.length > 0) {
-      yc.forEach(function (cw) {
-        if (cw.doneUnits < cw.totalUnits) plan.push({ id: "today_chal_" + cw.id, label: cw.name + " 第" + (cw.doneUnits + 1) + "回", subject: cw.subject, time: "5分", wbId: cw.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + cw.id] });
-        else if (cw.hasTest && !cw.testDone) plan.push({ id: "today_chaltest_" + cw.id, label: cw.name + " テスト", subject: cw.subject, time: "5分", wbId: cw.id, action: "test", emoji: "📝", done: !!todayDone["chaltest_" + cw.id] });
-      });
-    }
-    var yp = wbs.filter(function (w) { return w.type === "pages" && (w.donePages || 0) < w.totalPages; });
-    if (yp.length > 0) {
-      var yk = yp.find(function (w) { return w.dailyPages; });
-      var yo = yp.filter(function (w) { return !w.dailyPages; });
-      if (yk) plan.push({ id: "today_kanji", label: todayDone["label_kanji"] || (yk.name + " " + pageLabel(yk, yk.dailyPages)), subject: yk.subject, time: (yk.dailyPages * (yk.minPerPage || 3)) + "分", wbId: yk.id, action: "pages", pages: yk.dailyPages, emoji: "✏️", done: !!todayDone["kanji"] });
-      if (yo.length > 0) { var ypp = pickWithPriority(yo, ch, "pit", dayOfYear, data); plan.push({ id: "today_pit_" + ypp.id, label: todayDone["label_pit_" + ypp.id] || (ypp.name + " " + pageLabel(ypp, 2)), subject: ypp.subject, time: (2 * (ypp.minPerPage || 3)) + "分", wbId: ypp.id, action: "pit_pages", pages: 2, emoji: "📗", done: !!todayDone["pit_" + ypp.id] }); }
-    }
+    // 2026-06-06 週プール制: 優珠綺の学習タスクは WeekPlanCard で管理（日次では出さない）
     // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
     var yuzKanjiActive = ((data.kanjiList && data.kanjiList["yuzuki"]) || []).filter(function (k) { return isKanjiDue(k, TD); });
     if (yuzKanjiActive.length > 0) {
@@ -522,6 +480,273 @@ function buildTodayPlan(ch, data) {
   });
   return plan;
 }
+// ===== 2026-06-06 週プール制（叡志・優珠綺）: 1週間分のタスクを月〜日でプール化 =====
+function weekStartKey(dateStr) {
+  var p = dateStr.split("-");
+  var dt = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+  var off = (dt.getDay() + 6) % 7; // 月曜=0
+  dt.setDate(dt.getDate() - off);
+  return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+}
+function weekDatesOf(weekKey) {
+  var p = weekKey.split("-");
+  var base = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+  var arr = [];
+  for (var i = 0; i < 7; i++) { var d = new Date(base); d.setDate(d.getDate() + i); arr.push(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0")); }
+  return arr;
+}
+function weekTaskDoneDate(data, chId, weekKey, taskId) {
+  var dates = weekDatesOf(weekKey);
+  var tc = (data.todayChecks && data.todayChecks[chId]) || {};
+  for (var i = 0; i < dates.length; i++) { if (tc[dates[i]] && tc[dates[i]]["week_" + taskId]) return dates[i]; }
+  return null;
+}
+// 問題集の1日の目安を7日分シミュレートして週のタスクプールを生成
+function weekPoolGen(ch, data) {
+  var src = (data.workbooks && data.workbooks[ch.id]) || [];
+  var defMinUnit = ch.id === "yuzuki" ? 5 : 15;
+  var wbs = src.map(function (w) { return { id: w.id, name: w.name, type: w.type, subject: w.subject, doneUnits: w.doneUnits || 0, totalUnits: w.totalUnits || 0, hasTest: !!w.hasTest, testDone: !!w.testDone, donePages: w.donePages || 0, totalPages: w.totalPages || 0, dailyPages: w.dailyPages || 0, minPerPage: w.minPerPage || 3, minPerUnit: w.minPerUnit || defMinUnit }; });
+  var challenges = wbs.filter(function (w) { return w.type === "challenge"; });
+  var kanjiDrill = wbs.find(function (w) { return w.type === "pages" && w.dailyPages > 0; });
+  var pitlist = wbs.filter(function (w) { return w.type === "pages" && !(w.dailyPages > 0); });
+  var tasks = []; var seq = 0;
+  var nid = function () { return ch.id + "_wt" + (seq++); };
+  var chalTask = function (w, day) {
+    if (w.doneUnits < w.totalUnits) { w.doneUnits++; return { id: nid(), label: w.name + " 第" + w.doneUnits + "回", subject: w.subject, action: "unit", wbId: w.id, estMin: w.minPerUnit, day: day }; }
+    if (w.hasTest && !w.testDone) { w.testDone = true; return { id: nid(), label: w.name + " テスト", subject: w.subject, action: "test", wbId: w.id, estMin: w.minPerUnit, day: day }; }
+    return null;
+  };
+  var pgTask = function (w, n, action, day) {
+    if (w.donePages >= w.totalPages) return null;
+    var start = w.donePages + 1; var take = Math.min(n, w.totalPages - w.donePages); w.donePages += take;
+    return { id: nid(), label: w.name + " P" + start + (take > 1 ? "-" + (start + take - 1) : ""), subject: w.subject, action: action, wbId: w.id, pages: take, estMin: take * w.minPerPage, day: day };
+  };
+  for (var d = 0; d < 7; d++) {
+    for (var sm = 0; sm < 4; sm++) tasks.push({ id: nid(), label: "スマイルゼミ " + circledNum(sm), subject: "", action: "smile", estMin: 10, day: d });
+    if (ch.id === "yuzuki") {
+      challenges.forEach(function (w) { var t = chalTask(w, d); if (t) tasks.push(t); });
+      if (kanjiDrill) { var t1 = pgTask(kanjiDrill, kanjiDrill.dailyPages || 2, "pages", d); if (t1) tasks.push(t1); }
+      if (pitlist.length) { var pw = pitlist[d % pitlist.length]; var t2 = pgTask(pw, 2, "pit_pages", d); if (t2) tasks.push(t2); }
+    } else {
+      if (challenges.length) { for (var i = 0; i < challenges.length; i++) { var cw = challenges[(d + i) % challenges.length]; var tc = chalTask(cw, d); if (tc) { tasks.push(tc); break; } } }
+      if (kanjiDrill) { var t3 = pgTask(kanjiDrill, kanjiDrill.dailyPages || 2, "pages", d); if (t3) tasks.push(t3); }
+      if (pitlist.length) { for (var j = 0; j < pitlist.length; j++) { var pw2 = pitlist[(d + j) % pitlist.length]; var t4 = pgTask(pw2, 2, "pit_pages", d); if (t4) { tasks.push(t4); break; } } }
+    }
+  }
+  return tasks;
+}
+function WeekPlanCard(p) {
+  var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
+  const [showAhead, setShowAhead] = useState(false);
+  const [showDone, setShowDone] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addWbId, setAddWbId] = useState("");
+  const [addLabel, setAddLabel] = useState("");
+  const [addMin, setAddMin] = useState("");
+  var weekKey = weekStartKey(TD);
+  var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
+  var wp = (data.weekPlan && data.weekPlan[ch.id]) || null;
+  var tasks = (wp && wp.weekKey === weekKey && wp.tasks) ? wp.tasks : [];
+  var todayIdx = (NOW.getDay() + 6) % 7;
+  var dayNames = ["月", "火", "水", "木", "金", "土", "日"];
+  var fmt = function (m) { m = Math.round(m); return m >= 60 ? (Math.floor(m / 60) + "時間" + (m % 60 > 0 ? (m % 60) + "分" : "")) : (m + "分"); };
+  var emojiOf = function (a) { return a === "unit" ? "📕" : a === "test" ? "📝" : a === "pit_pages" ? "📗" : a === "smile" ? "📱" : "✏️"; };
+  var info = tasks.map(function (t) { return { t: t, doneDate: weekTaskDoneDate(data, ch.id, weekKey, t.id) }; });
+  var totalCount = tasks.length;
+  var doneCount = info.filter(function (x) { return x.doneDate; }).length;
+  var totalMin = tasks.reduce(function (s, t) { return s + (t.estMin || 0); }, 0);
+  var doneMin = info.reduce(function (s, x) { return s + (x.doneDate ? (x.t.estMin || 0) : 0); }, 0);
+  var remainMin = Math.max(0, totalMin - doneMin);
+  var pct = totalMin > 0 ? Math.round(doneMin / totalMin * 100) : 0;
+  var daysLeft = 7 - todayIdx;
+  var perDay = daysLeft > 0 ? Math.ceil(remainMin / daysLeft) : remainMin;
+  var todayTargetMin = info.filter(function (x) { return !x.doneDate && x.t.day === todayIdx; }).reduce(function (s, x) { return s + (x.t.estMin || 0); }, 0);
+  var expected = totalMin * (todayIdx + 1) / 7;
+  var advice = null, adviceBg = "#FFFDE7", adviceColor = "#8a6d00";
+  if (totalCount > 0) {
+    if (doneCount >= totalCount) { advice = "🎉 今週のタスク、ぜんぶ終わったよ！すごい！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
+    else if (doneMin >= expected) { advice = "✨ いいペース！このペースなら週末（土・日）はゆっくりできそうだよ。"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
+    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = (todayIdx < 5) ? ("⏰ このままだと週末に約" + fmt(remainMin) + "勉強することになりそう。今日はあと" + fmt(todayTargetMin > 0 ? todayTargetMin : perDay) + "やっておくとラクだよ！") : ("⏰ あと" + fmt(remainMin) + "のこってるよ。今日がんばろう！"); }
+  }
+  var completeTask = function (t) {
+    var d = clone(data);
+    if (!d.todayChecks) d.todayChecks = {};
+    if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
+    if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
+    d.todayChecks[ch.id][TD]["week_" + t.id] = true;
+    ensurePts(d, ch.id);
+    var _pc = d._pointConfig || {};
+    var ptAmt = t.action === "test" ? (_pc.chalTest || 2) : t.action === "unit" ? (_pc.chalUnit || 1) : (t.action === "pages" || t.action === "pit_pages") ? (_pc.pageDone || 1) : (_pc.taskDone || 1);
+    var ptId = "wk" + Date.now();
+    d.points[ch.id].balance += ptAmt;
+    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: t.label + " 完了", date: TD, id: ptId });
+    var wbAdvance, wbChallengeUndo;
+    if (t.wbId && d.workbooks && d.workbooks[ch.id]) {
+      var wb = d.workbooks[ch.id].find(function (w) { return w.id === t.wbId; });
+      if (wb) {
+        if (t.action === "unit") { wb.doneUnits = Math.min(wb.totalUnits || 0, (wb.doneUnits || 0) + 1); wbChallengeUndo = { wbId: t.wbId, wbAction: "unit" }; }
+        else if (t.action === "test") { wb.testDone = true; wbChallengeUndo = { wbId: t.wbId, wbAction: "test" }; }
+        else if ((t.action === "pages" || t.action === "pit_pages") && t.pages) { wb.donePages = Math.min(wb.totalPages || 0, (wb.donePages || 0) + t.pages); wbAdvance = { wbId: t.wbId, pages: t.pages }; }
+      }
+    }
+    if (!d.studyLogs) d.studyLogs = {};
+    if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
+    d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: (t.estMin || 0) * 60, title: t.label, subject: t.subject || "", meta: { checkKey: "week_" + t.id, checkDate: TD, ptAwarded: ptAmt, ptHistoryId: ptId, wbAdvance: wbAdvance, wbChallengeUndo: wbChallengeUndo, isPartial: false } });
+    save(d);
+  };
+  var uncompleteTask = function (t, doneDate) {
+    var d = clone(data);
+    var key = "week_" + t.id;
+    var arr = (d.studyLogs && d.studyLogs[ch.id]) || [];
+    var log = arr.find(function (l) { return l.meta && l.meta.checkKey === key; });
+    if (log && log.meta) {
+      var m = log.meta;
+      if (d.points && d.points[ch.id]) { d.points[ch.id].balance = Math.max(0, d.points[ch.id].balance - (m.ptAwarded || 0)); d.points[ch.id].history = (d.points[ch.id].history || []).filter(function (h) { return h.id !== m.ptHistoryId; }); }
+      if (m.wbAdvance && d.workbooks && d.workbooks[ch.id]) { var w1 = d.workbooks[ch.id].find(function (w) { return w.id === m.wbAdvance.wbId; }); if (w1) w1.donePages = Math.max(0, (w1.donePages || 0) - m.wbAdvance.pages); }
+      if (m.wbChallengeUndo && d.workbooks && d.workbooks[ch.id]) { var w2 = d.workbooks[ch.id].find(function (w) { return w.id === m.wbChallengeUndo.wbId; }); if (w2) { if (m.wbChallengeUndo.wbAction === "unit") w2.doneUnits = Math.max(0, (w2.doneUnits || 0) - 1); else if (m.wbChallengeUndo.wbAction === "test") w2.testDone = false; } }
+      d.studyLogs[ch.id] = arr.filter(function (l) { return l.id !== log.id; });
+    }
+    if (d.todayChecks && d.todayChecks[ch.id] && d.todayChecks[ch.id][doneDate]) delete d.todayChecks[ch.id][doneDate][key];
+    save(d);
+  };
+  var removeTask = function (taskId) {
+    var d = clone(data);
+    if (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) d.weekPlan[ch.id].tasks = d.weekPlan[ch.id].tasks.filter(function (t) { return t.id !== taskId; });
+    save(d);
+  };
+  var regenWeek = function () {
+    if (!window.confirm("今週のタスクを作り直します。完了ずみの記録は残ります。よろしいですか？")) return;
+    var d = clone(data);
+    if (!d.weekPlan) d.weekPlan = {};
+    d.weekPlan[ch.id] = { weekKey: weekKey, tasks: weekPoolGen(ch, data) };
+    save(d);
+  };
+  var addTask = function () {
+    var d = clone(data);
+    if (!d.weekPlan) d.weekPlan = {};
+    if (!d.weekPlan[ch.id] || d.weekPlan[ch.id].weekKey !== weekKey) d.weekPlan[ch.id] = { weekKey: weekKey, tasks: [] };
+    var estMin = parseInt(addMin) || 10;
+    var t;
+    if (addWbId) {
+      var wb = wbs.find(function (w) { return w.id === addWbId; });
+      if (!wb) return;
+      if (wb.type === "challenge") {
+        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: estMin, day: todayIdx };
+        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: todayIdx };
+        else return;
+      } else {
+        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: todayIdx };
+      }
+    } else {
+      if (!addLabel.trim()) return;
+      t = { id: ch.id + "_wa" + Date.now(), label: addLabel.trim(), subject: "", action: "free", estMin: estMin, day: todayIdx };
+    }
+    d.weekPlan[ch.id].tasks.push(t);
+    save(d);
+    setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin("");
+  };
+  var pendingToday = info.filter(function (x) { return !x.doneDate && x.t.day === todayIdx; });
+  var pendingPast = info.filter(function (x) { return !x.doneDate && x.t.day < todayIdx; });
+  var pendingAhead = info.filter(function (x) { return !x.doneDate && x.t.day > todayIdx; });
+  var doneList = info.filter(function (x) { return x.doneDate; });
+  var rowU = function (x) {
+    var t = x.t;
+    return (
+      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f3f3f3" }}>
+        <button onClick={function () { completeTask(t); }} style={{ width: 26, height: 26, borderRadius: 13, border: "2px solid " + ch.color, background: "#fff", color: ch.color, fontWeight: 800, cursor: "pointer", flexShrink: 0 }}>○</button>
+        <span style={{ fontSize: 16 }}>{emojiOf(t.action)}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}><Kid t={t.label} ch={ch} data={data} on={!isP} /></div>
+          <div style={{ fontSize: 10, color: "#999" }}>{t.subject ? <span><Kid t={t.subject} ch={ch} data={data} on={!isP} />・</span> : null}{fmt(t.estMin || 0)}</div>
+        </div>
+        {isP && <button onClick={function () { removeTask(t.id); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#ddd" }}>🗑</button>}
+      </div>
+    );
+  };
+  return (
+    <div style={{ ...S.card }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ ...S.cardTitle, margin: 0 }}><Kid t={"📅 今週のタスク"} ch={ch} data={data} on={!isP} /></div>
+        <div style={{ fontSize: 11, color: "#999" }}>{dayNames[todayIdx]}よう日</div>
+      </div>
+      {totalCount === 0 ? (
+        <div style={{ textAlign: "center", padding: 14, color: "#bbb", fontSize: 12 }}>
+          <Kid t={"今週のタスクを準備します…"} ch={ch} data={data} on={!isP} />
+          {isP && <div style={{ marginTop: 8 }}><button onClick={regenWeek} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>今週のタスクを作る</button></div>}
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+            <span style={{ fontWeight: 700, color: ch.color }}>{doneCount}/{totalCount}<Kid t={"個"} ch={ch} data={data} on={!isP} />・{fmt(doneMin)}/{fmt(totalMin)}</span>
+            <span style={{ color: "#aaa" }}>{pct}%</span>
+          </div>
+          <div style={S.progBar}><div style={{ height: "100%", borderRadius: 3, background: ch.color, width: pct + "%", transition: "width .4s" }} /></div>
+          {advice && <div style={{ marginTop: 10, padding: "8px 10px", background: adviceBg, color: adviceColor, borderRadius: 8, fontSize: 12, fontWeight: 600, lineHeight: 1.5 }}>{advice}</div>}
+          {pendingPast.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#E65100", marginBottom: 2 }}>🔥 <Kid t={"まだ終わっていないぶん"} ch={ch} data={data} on={!isP} /></div>
+              {pendingPast.map(rowU)}
+            </div>
+          )}
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 2 }}>⭐ <Kid t={"今日のぶん"} ch={ch} data={data} on={!isP} /></div>
+            {pendingToday.length > 0 ? pendingToday.map(rowU) : <div style={{ fontSize: 11, color: "#bbb", padding: "6px 0" }}><Kid t={"今日のぶんはおわったよ！"} ch={ch} data={data} on={!isP} /></div>}
+          </div>
+          {pendingAhead.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <button onClick={function () { setShowAhead(!showAhead); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", width: "100%" }}>{showAhead ? "▲ 先取りをとじる" : "▶ 先取りでやる（" + pendingAhead.length + "）"}</button>
+              {showAhead && pendingAhead.map(rowU)}
+            </div>
+          )}
+          {doneList.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <button onClick={function () { setShowDone(!showDone); }} style={{ fontSize: 11, color: "#aaa", background: "none", border: "none", cursor: "pointer" }}>{showDone ? "▲ おわったものをとじる" : "✅ おわったもの（" + doneList.length + "）"}</button>
+              {showDone && doneList.map(function (x) {
+                return (
+                  <div key={x.t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", opacity: .55 }}>
+                    <div style={{ width: 24, height: 24, borderRadius: 12, background: "#4CAF50", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✓</div>
+                    <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through" }}><Kid t={x.t.label} ch={ch} data={data} on={!isP} /></div>
+                    {isP && <button onClick={function () { uncompleteTask(x.t, x.doneDate); }} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#bbb" }}>↩</button>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {isP && (
+            <div style={{ marginTop: 10, borderTop: "1px dashed #eee", paddingTop: 8 }}>
+              {!addOpen ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={function () { setAddOpen(true); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", flex: 1 }}>＋ タスクを追加</button>
+                  <button onClick={regenWeek} style={{ ...S.smBtn, background: "#fff", color: "#E53935", border: "1px solid #E53935" }}>作り直す</button>
+                </div>
+              ) : (
+                <div style={{ padding: 8, background: "#f9f9f9", borderRadius: 8 }}>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                    <button onClick={function () { setAddWbId(""); }} style={{ ...S.smBtn, background: !addWbId ? ch.color : "#f0f0f0", color: !addWbId ? "#fff" : "#666", flex: 1 }}>自由入力</button>
+                    <button onClick={function () { setAddWbId(wbs.length > 0 ? wbs[0].id : ""); }} style={{ ...S.smBtn, background: addWbId ? ch.color : "#f0f0f0", color: addWbId ? "#fff" : "#666", flex: 1 }}>問題集から</button>
+                  </div>
+                  {addWbId ? (
+                    <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 6 }}>{wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}</option>; })}</select>
+                  ) : (
+                    <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: プリント1枚" style={{ ...S.input, marginBottom: 6 }} />
+                  )}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: "#666" }}>目安</span>
+                    <input type="number" value={addMin} onChange={function (e) { setAddMin(e.target.value); }} placeholder="10" style={{ ...S.input, width: 50, textAlign: "center" }} /><span style={{ fontSize: 11, color: "#999" }}>分</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={function () { setAddOpen(false); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>✕</button>
+                    <button onClick={addTask} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>追加</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 function HomeTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP, setTab = p.setTab;
   var isM = ch.mode === "managed";
@@ -555,6 +780,17 @@ function HomeTab(p) {
     d._dailySelections[ch.id][TD] = newSel;
     save(d);
   }, [ch.id, _planKey]);
+  // 2026-06-06 週プール（叡志・優珠綺）: 月曜起点の週が未生成/前週なら自動生成
+  useEffect(function () {
+    if (ch.id !== "eishi" && ch.id !== "yuzuki") return;
+    var wk = weekStartKey(TD);
+    var wpc = data.weekPlan && data.weekPlan[ch.id];
+    if (wpc && wpc.weekKey === wk) return;
+    var d = clone(data);
+    if (!d.weekPlan) d.weekPlan = {};
+    d.weekPlan[ch.id] = { weekKey: wk, tasks: weekPoolGen(ch, data) };
+    save(d);
+  }, [ch.id, TD]);
   // Manual tasks (for self-managed / non-workbook)
   var tasks = Object.values(data.tasks[ch.id] || {});
   var manualToday = tasks.filter(function (t) { return t.date === TD && !t.done; });
@@ -698,6 +934,9 @@ function HomeTab(p) {
           </div>
         )}
       </div>
+      {(ch.id === "eishi" || ch.id === "yuzuki") && (
+        <WeekPlanCard ch={ch} data={data} save={save} isP={isP} />
+      )}
       {/* TODAY'S PLAN — the main feature */}
       {isM && plan.length > 0 && (
         <TodayPlanCard ch={ch} data={data} save={save} isP={isP} plan={plan} pendingPlan={pendingPlan} donePlan={donePlan} totalRemain={totalRemain} timeLimit={timeLimit} studyMin={studyMin} checkPlanItem={checkPlanItem} />
