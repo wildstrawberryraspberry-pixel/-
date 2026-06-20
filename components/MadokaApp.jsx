@@ -119,6 +119,7 @@ export default function App() {
         if (!p.kanjiList) p.kanjiList = {}; // 2026-05-24 間違えた漢字リスト
         if (!p.kanjiHistory) p.kanjiHistory = {};
         if (!p.weekPlan) p.weekPlan = {}; // 2026-06-06 週プール // 2026-05-24 漢字練習履歴
+        if (!p.weekStats) p.weekStats = {}; // 2026-06-06 週ごとの達成スナップショット
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -570,7 +571,7 @@ function WeekPlanCard(p) {
     else if (todayList.length === 0) { advice = "✨ 今日のぶんはおわったよ！この調子！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
     else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = "📌 のこり" + undone.length + "個をあと" + daysLeft + "日でわけたよ。今日はあと" + todayList.length + "個やろう！"; }
   }
-  var completeTask = function (t) {
+  var completeTask = function (t, elapsed, clearTimerKey) {
     var d = clone(data);
     if (!d.todayChecks) d.todayChecks = {};
     if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
@@ -593,7 +594,8 @@ function WeekPlanCard(p) {
     }
     if (!d.studyLogs) d.studyLogs = {};
     if (!d.studyLogs[ch.id]) d.studyLogs[ch.id] = [];
-    d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: (t.estMin || 0) * 60, title: t.label, subject: t.subject || "", meta: { checkKey: "week_" + t.id, checkDate: TD, ptAwarded: ptAmt, ptHistoryId: ptId, wbAdvance: wbAdvance, wbChallengeUndo: wbChallengeUndo, isPartial: false } });
+    if (clearTimerKey) { if (!d._timers) d._timers = {}; delete d._timers[clearTimerKey]; }
+    d.studyLogs[ch.id].push({ id: "sl" + Date.now(), date: TD, seconds: (elapsed != null ? Math.max(0, elapsed) : (t.estMin || 0) * 60), title: t.label, subject: t.subject || "", meta: { checkKey: "week_" + t.id, checkDate: TD, ptAwarded: ptAmt, ptHistoryId: ptId, wbAdvance: wbAdvance, wbChallengeUndo: wbChallengeUndo, isPartial: false } });
     save(d);
   };
   var uncompleteTask = function (t, doneDate) {
@@ -703,15 +705,14 @@ function WeekPlanCard(p) {
   };
   var rowU = function (x) {
     var t = x.t;
+    var pit = { id: t.id, label: t.label, subject: t.subject || "", time: t.estMin ? (t.estMin + "分") : "", emoji: emojiOf(t.action), action: t.action, wbId: t.wbId, pages: t.pages };
+    if (t.day != null && t.day < todayIdx) pit._fromDate = weekDatesOf(weekKey)[t.day];
     return (
-      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f3f3f3" }}>
-        <button onClick={function () { completeTask(t); }} style={{ width: 26, height: 26, borderRadius: 13, border: "2px solid " + ch.color, background: "#fff", color: ch.color, fontWeight: 800, cursor: "pointer", flexShrink: 0 }}>○</button>
-        <span style={{ fontSize: 16 }}>{emojiOf(t.action)}</span>
+      <div key={t.id} style={{ display: "flex", alignItems: "flex-start", gap: 4 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}><Kid t={t.label} ch={ch} data={data} on={!isP} /></div>
-          <div style={{ fontSize: 10, color: "#999" }}><Kid t={t.subject} ch={ch} data={data} on={!isP} /></div>
+          <PlanItem item={pit} ch={ch} data={data} save={save} checkPlanItem={function (it) { completeTask(t, it._elapsed, it._clearTimerKey); }} isP={isP} />
         </div>
-        {isP && <button onClick={function () { removeTask(t.id); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#ddd" }}>🗑</button>}
+        {isP && <button onClick={function () { removeTask(t.id); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#ddd", marginTop: 14, flexShrink: 0 }}>🗑</button>}
       </div>
     );
   };
@@ -884,6 +885,12 @@ function HomeTab(p) {
     if (wpc && wpc.weekKey === wk) return;
     var d = clone(data);
     if (!d.weekPlan) d.weekPlan = {};
+    if (wpc && wpc.weekKey && wpc.weekKey !== wk && wpc.tasks && wpc.tasks.length) {
+      if (!d.weekStats) d.weekStats = {};
+      if (!d.weekStats[ch.id]) d.weekStats[ch.id] = {};
+      var _doneN = wpc.tasks.filter(function (t) { return weekTaskDoneDate(data, ch.id, wpc.weekKey, t.id); }).length;
+      d.weekStats[ch.id][wpc.weekKey] = { total: wpc.tasks.length, done: _doneN };
+    }
     d.weekPlan[ch.id] = { weekKey: wk, tasks: weekPoolGen(ch, data) };
     save(d);
   }, [ch.id, TD]);
@@ -2910,6 +2917,46 @@ function ReviewTab(p) {
           );
         })}
       </div>
+      {(ch.id === "eishi" || ch.id === "yuzuki") && (
+        <div style={S.card}>
+          <div style={S.cardTitle}>📊 週ごとの達成率（月〜日）</div>
+          {(function () {
+            var curWk = weekStartKey(TD);
+            var rows = [];
+            for (var wi = 0; wi < 5; wi++) {
+              var pp = curWk.split("-"); var dt = new Date(parseInt(pp[0]), parseInt(pp[1]) - 1, parseInt(pp[2])); dt.setDate(dt.getDate() - wi * 7);
+              var wk = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+              var dates = weekDatesOf(wk);
+              var wsec = logs.filter(function (l) { return dates.indexOf(l.date) >= 0; }).reduce(function (s, l) { return s + l.seconds; }, 0);
+              var total = null, done = null;
+              if (wk === curWk) {
+                var wpc = data.weekPlan && data.weekPlan[ch.id];
+                if (wpc && wpc.weekKey === wk && wpc.tasks) { total = wpc.tasks.length; done = wpc.tasks.filter(function (t) { return weekTaskDoneDate(data, ch.id, wk, t.id); }).length; }
+              } else {
+                var st = data.weekStats && data.weekStats[ch.id] && data.weekStats[ch.id][wk];
+                if (st) { total = st.total; done = st.done; }
+              }
+              if (wk !== curWk && total == null && wsec === 0) continue;
+              var ed = parseInt(dates[6].split("-")[2], 10);
+              rows.push({ wk: wk, label: (dt.getMonth() + 1) + "/" + dt.getDate() + "〜" + ed + "日", isCur: wk === curWk, sec: wsec, total: total, done: done });
+            }
+            if (rows.length === 0) return <div style={{ fontSize: 12, color: "#bbb", textAlign: "center", padding: 10 }}>まだデータがありません</div>;
+            return rows.map(function (r) {
+              var pct = (r.total && r.total > 0) ? Math.round(r.done / r.total * 100) : null;
+              return (
+                <div key={r.wk} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 }}>
+                    <span style={{ color: "#666", fontWeight: r.isCur ? 800 : 400 }}>{r.isCur ? "今週" : r.label}</span>
+                    <span style={{ color: ch.color, fontWeight: 700 }}>{Math.floor(r.sec / 60)}分{pct != null ? "・達成 " + pct + "%（" + r.done + "/" + r.total + "）" : "・達成 —"}</span>
+                  </div>
+                  <div style={S.progBar}><div style={{ height: "100%", borderRadius: 3, background: pct != null ? (pct >= 80 ? "#4CAF50" : ch.color) : "#e0e0e0", width: (pct != null ? pct : 0) + "%" }} /></div>
+                </div>
+              );
+            });
+          })()}
+          <div style={{ fontSize: 10, color: "#aaa", marginTop: 4, lineHeight: 1.5 }}>※ 達成率は「今週のタスク」に対する完了割合です。過去の週は記録が残っている分のみ表示します。</div>
+        </div>
+      )}
       {/* Workbook Progress */}
       <div style={S.card}>
         <div style={S.cardTitle}><Kid t={"📖 問題集の進捗"} ch={ch} data={data} on={!isP} /></div>
