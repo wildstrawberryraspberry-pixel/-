@@ -431,18 +431,10 @@ function buildTodayPlan(ch, data) {
     }
   } else if (ch.id === "eishi") {
     // 2026-06-06 週プール制: 叡志の学習タスクは WeekPlanCard で管理（日次では出さない）
-    // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
-    var eisKanjiActive = ((data.kanjiList && data.kanjiList["eishi"]) || []).filter(function (k) { return isKanjiDue(k, TD); });
-    if (eisKanjiActive.length > 0) {
-      plan.push({ id: "today_kanji_test", label: "漢字テスト（" + Math.min(10, eisKanjiActive.length) + "問）", subject: "国語", time: "10分", action: "kanji_test", emoji: "🎯", done: !!todayDone["kanji_test"] });
-    }
+    // 2026-06-06 漢字テストは WeekPlanCard の「今日のやること」に統合（日次では出さない）
   } else if (ch.id === "yuzuki") {
     // 2026-06-06 週プール制: 優珠綺の学習タスクは WeekPlanCard で管理（日次では出さない）
-    // 2026-05-24: 間違えた漢字リストに未定着がある場合、漢字テストタスクを追加
-    var yuzKanjiActive = ((data.kanjiList && data.kanjiList["yuzuki"]) || []).filter(function (k) { return isKanjiDue(k, TD); });
-    if (yuzKanjiActive.length > 0) {
-      plan.push({ id: "today_kanji_test", label: "漢字テスト（" + Math.min(10, yuzKanjiActive.length) + "問）", subject: "国語", time: "10分", action: "kanji_test", emoji: "🎯", done: !!todayDone["kanji_test"] });
-    }
+    // 2026-06-06 漢字テストは WeekPlanCard の「今日のやること」に統合（日次では出さない）
   } else if (ch.id === "yukino") {
     var ync = 0;
     if (ync < maxNew) {
@@ -543,6 +535,7 @@ function WeekPlanCard(p) {
   const [addWbId, setAddWbId] = useState("");
   const [addLabel, setAddLabel] = useState("");
   const [addMin, setAddMin] = useState("");
+  const [kanjiTestIdx, setKanjiTestIdx] = useState(-1);
   var weekKey = weekStartKey(TD);
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var wp = (data.weekPlan && data.weekPlan[ch.id]) || null;
@@ -557,16 +550,17 @@ function WeekPlanCard(p) {
   var totalMin = tasks.reduce(function (s, t) { return s + (t.estMin || 0); }, 0);
   var doneMin = info.reduce(function (s, x) { return s + (x.doneDate ? (x.t.estMin || 0) : 0); }, 0);
   var pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
-  var daysLeft = 7 - todayIdx;
-  var remainCount = totalCount - doneCount;
-  var perDayCount = daysLeft > 0 ? Math.ceil(remainCount / daysLeft) : remainCount;
-  var todayTargetCount = info.filter(function (x) { return !x.doneDate && x.t.day === todayIdx; }).length;
-  var expectedCount = totalCount * (todayIdx + 1) / 7;
+  // 残りタスクを残り日数で均等割り（その日の中では固定：今日やった分を足し戻して当日枠を一定にする）
+  var daysLeft = Math.max(1, 7 - todayIdx);
+  var undoneCount = totalCount - doneCount;
+  var doneTodayCount = info.filter(function (x) { return x.doneDate === TD; }).length;
+  var quota = Math.ceil((undoneCount + doneTodayCount) / daysLeft);
+  var todayRemainNeed = Math.max(0, quota - doneTodayCount);
   var advice = null, adviceBg = "#FFFDE7", adviceColor = "#8a6d00";
   if (totalCount > 0) {
     if (doneCount >= totalCount) { advice = "🎉 今週のタスク、ぜんぶ終わったよ！すごい！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
-    else if (doneCount >= expectedCount) { advice = "✨ いいペース！このペースなら週末（土・日）はゆっくりできそうだよ。"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
-    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = (todayIdx < 5) ? ("⏰ このままだと週末に約" + remainCount + "個やることになりそう。今日はあと" + (todayTargetCount > 0 ? todayTargetCount : perDayCount) + "個やっておくとラクだよ！") : ("⏰ あと" + remainCount + "個のこってるよ。今日がんばろう！"); }
+    else if (todayRemainNeed <= 0) { advice = "✨ 今日のぶんはおわったよ！この調子！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
+    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = "📌 のこり" + undoneCount + "個をあと" + daysLeft + "日でわけたよ。今日はあと" + todayRemainNeed + "個やろう！"; }
   }
   var completeTask = function (t) {
     var d = clone(data);
@@ -645,10 +639,36 @@ function WeekPlanCard(p) {
     save(d);
     setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin("");
   };
-  var pendingToday = info.filter(function (x) { return !x.doneDate && x.t.day === todayIdx; });
-  var pendingPast = info.filter(function (x) { return !x.doneDate && x.t.day < todayIdx; });
-  var pendingAhead = info.filter(function (x) { return !x.doneDate && x.t.day > todayIdx; });
+  var undone = info.filter(function (x) { return !x.doneDate; });
   var doneList = info.filter(function (x) { return x.doneDate; });
+  var todayList = undone.slice(0, todayRemainNeed);
+  var laterList = undone.slice(todayRemainNeed);
+  // 漢字テスト（毎日の習慣。週カードの「今日のやること」に統合表示）
+  var kanjiActive = kanjiDailyQueue((data.kanjiList && data.kanjiList[ch.id]) || [], TD);
+  var kanjiDue = kanjiActive.length > 0;
+  var kanjiDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
+  var rkq = function (item) {
+    var reading = (item.reading || "").trim();
+    var sentence = (item.sentence || "").trim();
+    if (sentence && reading && sentence.indexOf(reading) >= 0) {
+      var _idx = sentence.indexOf(reading); var _b = sentence.slice(0, _idx); var _a = sentence.slice(_idx + reading.length);
+      return (<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}><Kid t={"下線部を漢字で書こう！"} ch={ch} data={data} on={!isP} /></div><div style={{ fontSize: 20, color: "#333", lineHeight: 2, letterSpacing: 1 }}>{_b}<span style={{ color: ch.color, fontWeight: 900, borderBottom: "3px solid " + ch.color, paddingBottom: 2, fontSize: 24 }}>{reading}</span>{_a}</div></div>);
+    }
+    if (sentence && reading) {
+      return (<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}><Kid t={"下線部を漢字で書こう！"} ch={ch} data={data} on={!isP} /></div><div style={{ fontSize: 16, color: "#555", marginBottom: 10, lineHeight: 1.8 }}>{sentence}</div><div style={{ fontSize: 30, fontWeight: 900, color: ch.color, borderBottom: "3px solid " + ch.color, display: "inline-block", paddingBottom: 2, letterSpacing: 4 }}>{reading}</div></div>);
+    }
+    return (<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}><Kid t={"この読みを漢字で書こう！"} ch={ch} data={data} on={!isP} /></div><div style={{ fontSize: 40, fontWeight: 900, color: ch.color, letterSpacing: 8 }}>{reading}</div></div>);
+  };
+  var finishKanji = function () {
+    var d = clone(data);
+    if (!d.todayChecks) d.todayChecks = {};
+    if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
+    if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
+    d.todayChecks[ch.id][TD]["kanji_test"] = true;
+    d.todayChecks[ch.id][TD]["label_kanji_test"] = "漢字テスト（" + kanjiActive.length + "問）";
+    save(d);
+    setKanjiTestIdx(-1);
+  };
   var rowU = function (x) {
     var t = x.t;
     return (
@@ -682,20 +702,47 @@ function WeekPlanCard(p) {
           </div>
           <div style={S.progBar}><div style={{ height: "100%", borderRadius: 3, background: ch.color, width: pct + "%", transition: "width .4s" }} /></div>
           {advice && <div style={{ marginTop: 10, padding: "8px 10px", background: adviceBg, color: adviceColor, borderRadius: 8, fontSize: 12, fontWeight: 600, lineHeight: 1.5 }}>{advice}</div>}
-          {pendingPast.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#E65100", marginBottom: 2 }}>🔥 <Kid t={"まだ終わっていないぶん"} ch={ch} data={data} on={!isP} /></div>
-              {pendingPast.map(rowU)}
-            </div>
-          )}
           <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 2 }}>⭐ <Kid t={"今日のぶん"} ch={ch} data={data} on={!isP} /></div>
-            {pendingToday.length > 0 ? pendingToday.map(rowU) : <div style={{ fontSize: 11, color: "#bbb", padding: "6px 0" }}><Kid t={"今日のぶんはおわったよ！"} ch={ch} data={data} on={!isP} /></div>}
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 2 }}>⭐ <Kid t={"今日のやること"} ch={ch} data={data} on={!isP} /></div>
+            {kanjiDue && !kanjiDone && kanjiTestIdx < 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f3f3f3" }}>
+                <span style={{ fontSize: 16 }}>🎯</span>
+                <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}><Kid t={"漢字テスト（" + kanjiActive.length + "問）"} ch={ch} data={data} on={!isP} /></div>
+                <button onClick={function () { setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}><Kid t={"問題を見る ▶"} ch={ch} data={data} on={!isP} /></button>
+              </div>
+            )}
+            {kanjiDue && !kanjiDone && kanjiTestIdx >= 0 && (
+              <div style={{ background: "#F8F9FF", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: "#aaa", fontWeight: 600 }}>{kanjiTestIdx + 1} / {kanjiActive.length} <Kid t={"問目"} ch={ch} data={data} on={!isP} /></div>
+                  <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#eee", color: "#999", fontSize: 11 }}><Kid t={"✕ 閉じる"} ch={ch} data={data} on={!isP} /></button>
+                </div>
+                <div style={{ padding: "8px 4px 14px", minHeight: 100 }}>
+                  <div style={{ textAlign: "center", fontSize: 26, fontWeight: 900, color: ch.color, marginBottom: 2 }}>{circledNum(kanjiTestIdx)}</div>
+                  {kanjiActive[kanjiTestIdx] ? rkq(kanjiActive[kanjiTestIdx]) : null}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}><Kid t={"← 前の問題"} ch={ch} data={data} on={!isP} /></button>
+                  {kanjiTestIdx < kanjiActive.length - 1
+                    ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}><Kid t={"次の問題 →"} ch={ch} data={data} on={!isP} /></button>
+                    : <button onClick={finishKanji} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>}
+                </div>
+                {kanjiTestIdx === kanjiActive.length - 1 && <div style={{ textAlign: "center", fontSize: 11, color: "#888", marginTop: 6 }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>}
+              </div>
+            )}
+            {kanjiDone && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", opacity: .55 }}>
+                <div style={{ width: 24, height: 24, borderRadius: 12, background: "#4CAF50", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✓</div>
+                <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through" }}><Kid t={"漢字テスト"} ch={ch} data={data} on={!isP} /></div>
+              </div>
+            )}
+            {todayList.map(rowU)}
+            {todayList.length === 0 && !(kanjiDue && !kanjiDone) && <div style={{ fontSize: 11, color: "#bbb", padding: "6px 0" }}><Kid t={"今日のぶんはおわったよ！"} ch={ch} data={data} on={!isP} /></div>}
           </div>
-          {pendingAhead.length > 0 && (
+          {laterList.length > 0 && (
             <div style={{ marginTop: 10 }}>
-              <button onClick={function () { setShowAhead(!showAhead); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", width: "100%" }}>{showAhead ? "▲ 先取りをとじる" : "▶ 先取りでやる（" + pendingAhead.length + "）"}</button>
-              {showAhead && pendingAhead.map(rowU)}
+              <button onClick={function () { setShowAhead(!showAhead); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", width: "100%" }}>{showAhead ? "▲ あとでやるをとじる" : "▶ あとでやる・先取り（" + laterList.length + "）"}</button>
+              {showAhead && laterList.map(rowU)}
             </div>
           )}
           {doneList.length > 0 && (
@@ -982,7 +1029,7 @@ function HomeTab(p) {
           })}
         </div>
       )}
-      {totalRemain === 0 && totalDone === 0 && plan.length === 0 && (
+      {totalRemain === 0 && totalDone === 0 && plan.length === 0 && ch.id !== "eishi" && ch.id !== "yuzuki" && (
         <div style={{ textAlign: "center", padding: 30, color: "#bbb" }}>
           <div style={{ fontSize: 36 }}>{ch.emoji}</div>
           <div style={{ marginTop: 6, fontWeight: 700 }}><Kid t={"タスクを追加して始めよう！"} ch={ch} data={data} on={!isP} /></div>
@@ -1320,7 +1367,7 @@ function TodayPlanCard(p) {
           ⏰ 今日は{timeLimit}分がんばりました！残りのタスクは明日やろう。
         </div>
       )}
-      {actualRemain === 0 && allDone.length > 0 && isToday && (
+      {actualRemain === 0 && allDone.length > 0 && isToday && ch.id !== "eishi" && ch.id !== "yuzuki" && (
         <div style={{ textAlign: "center", padding: 16 }}>
           <div style={{ fontSize: 40 }}>🎉</div>
           <div style={{ fontSize: 15, fontWeight: 800, color: "#4CAF50", marginTop: 6 }}><Kid t={"今日のぶん、ぜんぶ終わったよ！"} ch={ch} data={data} on={!isP} /></div>
