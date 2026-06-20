@@ -522,7 +522,7 @@ function weekPoolGen(ch, data) {
     return { id: nid(), label: w.name + " P" + start + (take > 1 ? "-" + (start + take - 1) : ""), subject: w.subject, action: action, wbId: w.id, pages: take, estMin: take * w.minPerPage, day: day };
   };
   for (var d = 0; d < 7; d++) {
-    for (var sm = 0; sm < 4; sm++) tasks.push({ id: nid(), label: "スマイルゼミ " + circledNum(sm), subject: "", action: "smile", estMin: 10, day: d });
+    tasks.push({ id: nid(), label: "スマイルゼミ", subject: "", action: "smile", estMin: 15, day: d });
     if (ch.id === "yuzuki") {
       challenges.forEach(function (w) { var t = chalTask(w, d); if (t) tasks.push(t); });
       if (kanjiDrill) { var t1 = pgTask(kanjiDrill, kanjiDrill.dailyPages || 2, "pages", d); if (t1) tasks.push(t1); }
