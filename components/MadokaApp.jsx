@@ -121,6 +121,7 @@ export default function App() {
         if (!p.weekPlan) p.weekPlan = {}; // 2026-06-06 週プール // 2026-05-24 漢字練習履歴
         if (!p.weekStats) p.weekStats = {}; // 2026-06-06 週ごとの達成スナップショット
         if (!p.kanjiPending) p.kanjiPending = {}; // 2026-06-06 来週以降の漢字練習予約
+        if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -496,13 +497,27 @@ function weekTaskDoneDate(data, chId, weekKey, taskId) {
   return null;
 }
 // 問題集の1日の目安を7日分シミュレートして週のタスクプールを生成
-function weekPoolGen(ch, data) {
+function nextWeekKeyOf(weekKey) {
+  var p = weekKey.split("-"); var dt = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])); dt.setDate(dt.getDate() + 7);
+  return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+}
+function weekPoolGen(ch, data, preTasks) {
   var src = (data.workbooks && data.workbooks[ch.id]) || [];
   var defMinUnit = ch.id === "yuzuki" ? 5 : 15;
   var wbs = src.map(function (w) { return { id: w.id, name: w.name, type: w.type, subject: w.subject, doneUnits: w.doneUnits || 0, totalUnits: w.totalUnits || 0, hasTest: !!w.hasTest, testDone: !!w.testDone, donePages: w.donePages || 0, totalPages: w.totalPages || 0, dailyPages: w.dailyPages || 0, minPerPage: w.minPerPage || 3, minPerUnit: w.minPerUnit || defMinUnit }; });
   var challenges = wbs.filter(function (w) { return w.type === "challenge"; });
   var kanjiDrill = wbs.find(function (w) { return w.type === "pages" && w.dailyPages > 0; });
   var pitlist = wbs.filter(function (w) { return w.type === "pages" && !(w.dailyPages > 0); });
+  if (preTasks && preTasks.length) {
+    preTasks.forEach(function (pt) {
+      if (!pt.wbId) return;
+      var pw = wbs.find(function (w) { return w.id === pt.wbId; });
+      if (!pw) return;
+      if (pt.action === "unit") pw.doneUnits = Math.min(pw.totalUnits, pw.doneUnits + 1);
+      else if (pt.action === "test") pw.testDone = true;
+      else if ((pt.action === "pages" || pt.action === "pit_pages") && pt.pages) pw.donePages = Math.min(pw.totalPages, pw.donePages + pt.pages);
+    });
+  }
   var tasks = []; var seq = 0;
   var nid = function () { return ch.id + "_wt" + (seq++); };
   var chalTask = function (w, day) {
@@ -541,6 +556,10 @@ function WeekPlanCard(p) {
   const [kanjiAddOpen, setKanjiAddOpen] = useState(false);
   const [kanjiInput, setKanjiInput] = useState("");
   const [kanjiAddOff, setKanjiAddOff] = useState(0);
+  const [nextOpen, setNextOpen] = useState(false);
+  const [naddWbId, setNaddWbId] = useState("");
+  const [naddLabel, setNaddLabel] = useState("");
+  const [naddDay, setNaddDay] = useState(0);
   var weekKey = weekStartKey(TD);
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var wp = (data.weekPlan && data.weekPlan[ch.id]) || null;
@@ -688,6 +707,51 @@ function WeekPlanCard(p) {
     save(d);
     setKanjiInput(""); setKanjiAddOpen(false);
   };
+  // 来週ぶんの事前プラン（週末に確認・微調整できる）
+  var nextWk = nextWeekKeyOf(weekKey);
+  var wn = (data.weekPlanNext && data.weekPlanNext[ch.id]) || null;
+  var nextTasks = (wn && wn.weekKey === nextWk && wn.tasks) ? wn.tasks : null;
+  var nextPending = ((data.kanjiPending && data.kanjiPending[ch.id]) || []).filter(function (p) { return weekStartKey(p.date) === nextWk; });
+  var genNext = function () {
+    var d = clone(data);
+    if (!d.weekPlanNext) d.weekPlanNext = {};
+    d.weekPlanNext[ch.id] = { weekKey: nextWk, tasks: weekPoolGen(ch, data, undone.map(function (x) { return x.t; })) };
+    save(d);
+  };
+  var regenNext = function () { if (!window.confirm("来週のタスクを作り直します。よろしいですか？")) return; genNext(); };
+  var removeNextTask = function (id) {
+    var d = clone(data);
+    if (d.weekPlanNext && d.weekPlanNext[ch.id] && d.weekPlanNext[ch.id].tasks) d.weekPlanNext[ch.id].tasks = d.weekPlanNext[ch.id].tasks.filter(function (t) { return t.id !== id; });
+    save(d);
+  };
+  var removeNextPending = function (id) {
+    var d = clone(data);
+    if (d.kanjiPending && d.kanjiPending[ch.id]) d.kanjiPending[ch.id] = d.kanjiPending[ch.id].filter(function (p) { return p.id !== id; });
+    save(d);
+  };
+  var addNextTask = function () {
+    var d = clone(data);
+    if (!d.weekPlanNext) d.weekPlanNext = {};
+    if (!d.weekPlanNext[ch.id] || d.weekPlanNext[ch.id].weekKey !== nextWk) d.weekPlanNext[ch.id] = { weekKey: nextWk, tasks: [] };
+    var t;
+    if (naddWbId) {
+      var wb = wbs.find(function (w) { return w.id === naddWbId; });
+      if (!wb) return;
+      if (wb.type === "challenge") {
+        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
+        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
+        else return;
+      } else {
+        t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: 2 * (wb.minPerPage || 3), day: naddDay };
+      }
+    } else {
+      if (!naddLabel.trim()) return;
+      t = { id: ch.id + "_nx" + Date.now(), label: naddLabel.trim(), subject: "", action: "free", estMin: 10, day: naddDay };
+    }
+    d.weekPlanNext[ch.id].tasks.push(t);
+    save(d);
+    setNaddLabel(""); setNaddWbId("");
+  };
   var doneList = info.filter(function (x) { return x.doneDate; });
   // 漢字テスト（毎日の習慣。週カードの「今日のやること」に統合表示）
   var kanjiActive = kanjiDailyQueue((data.kanjiList && data.kanjiList[ch.id]) || [], TD);
@@ -806,7 +870,56 @@ function WeekPlanCard(p) {
           )}
           {isP && (
             <div style={{ marginTop: 10, borderTop: "1px dashed #eee", paddingTop: 8 }}>
-              {kanjiAddOpen ? (
+              {nextOpen ? (
+                <div style={{ padding: 8, background: "#EEF7FF", borderRadius: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#1565C0" }}>📅 来週のタスク（{(function () { var dd = weekDatesOf(nextWk); var a = dd[0].split("-"); var b = dd[6].split("-"); return parseInt(a[1]) + "/" + parseInt(a[2]) + "〜" + parseInt(b[2]) + "日"; })()}）</div>
+                    <button onClick={function () { setNextOpen(false); }} style={{ ...S.smBtn, background: "#eee", color: "#999", fontSize: 11 }}>✕ 閉じる</button>
+                  </div>
+                  {nextTasks == null ? (
+                    <div style={{ textAlign: "center", padding: 10 }}>
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8, lineHeight: 1.5 }}>来週のタスクをまだ作っていません。<br />今週の残りを終えた前提で自動作成します。</div>
+                      <button onClick={genNext} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>来週のタスクを作る</button>
+                    </div>
+                  ) : (
+                    <div>
+                      {[0, 1, 2, 3, 4, 5, 6].map(function (di) {
+                        var dayTasks = nextTasks.filter(function (t) { return (t.day == null ? 0 : t.day) === di; });
+                        var dayPend = nextPending.filter(function (p) { return weekDatesOf(nextWk).indexOf(p.date) === di; });
+                        if (dayTasks.length === 0 && dayPend.length === 0) return null;
+                        return (
+                          <div key={di} style={{ marginBottom: 6 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "#1565C0", marginBottom: 2 }}>{dayNames[di]}よう日</div>
+                            {dayTasks.map(function (t) {
+                              return <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12 }}><span>{emojiOf(t.action)}</span><span style={{ flex: 1 }}>{t.label}</span><button onClick={function () { removeNextTask(t.id); }} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#ccc" }}>🗑</button></div>;
+                            })}
+                            {dayPend.map(function (p) {
+                              return <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12, color: "#9C27B0" }}><span>📌</span><span style={{ flex: 1 }}>{p.label}</span><button onClick={function () { removeNextPending(p.id); }} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#ccc" }}>🗑</button></div>;
+                            })}
+                          </div>
+                        );
+                      })}
+                      <div style={{ marginTop: 6, padding: 6, background: "#fff", borderRadius: 6 }}>
+                        <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>来週に追加する曜日</div>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 4 }}>
+                          {[0, 1, 2, 3, 4, 5, 6].map(function (di) {
+                            return <button key={di} onClick={function () { setNaddDay(di); }} style={{ ...S.smBtn, background: naddDay === di ? ch.color : "#f0f0f0", color: naddDay === di ? "#fff" : "#666", fontSize: 11, minWidth: 30, padding: "5px 7px" }}>{dayNames[di]}</button>;
+                          })}
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                          <button onClick={function () { setNaddWbId(""); }} style={{ ...S.smBtn, background: !naddWbId ? ch.color : "#f0f0f0", color: !naddWbId ? "#fff" : "#666", flex: 1 }}>自由</button>
+                          <button onClick={function () { setNaddWbId(wbs.length > 0 ? wbs[0].id : ""); }} style={{ ...S.smBtn, background: naddWbId ? ch.color : "#f0f0f0", color: naddWbId ? "#fff" : "#666", flex: 1 }}>問題集</button>
+                        </div>
+                        {naddWbId
+                          ? <select value={naddWbId} onChange={function (e) { setNaddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 4 }}>{wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}</option>; })}</select>
+                          : <input value={naddLabel} onChange={function (e) { setNaddLabel(e.target.value); }} placeholder="例: プリント1枚" style={{ ...S.input, marginBottom: 4 }} />}
+                        <button onClick={addNextTask} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%" }}>{dayNames[naddDay]}よう日に追加</button>
+                      </div>
+                      <button onClick={regenNext} style={{ ...S.smBtn, background: "#fff", color: "#E53935", border: "1px solid #E53935", width: "100%", marginTop: 6 }}>来週を作り直す</button>
+                    </div>
+                  )}
+                </div>
+              ) : kanjiAddOpen ? (
                 <div style={{ padding: 8, background: "#F3E5F5", borderRadius: 8 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ まちがえた漢字の練習を追加</div>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
@@ -829,6 +942,7 @@ function WeekPlanCard(p) {
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <button onClick={function () { setAddOpen(true); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", flex: 1 }}>＋ タスク</button>
                   <button onClick={function () { setKanjiAddOpen(true); setKanjiAddOff(0); }} style={{ ...S.smBtn, background: "#F3E5F5", color: "#7B1FA2", flex: 1 }}>✏️ 漢字練習</button>
+                  <button onClick={function () { setNextOpen(true); }} style={{ ...S.smBtn, background: "#E3F2FD", color: "#1565C0", flex: 1 }}>📅 来週</button>
                   <button onClick={regenWeek} style={{ ...S.smBtn, background: "#fff", color: "#E53935", border: "1px solid #E53935" }}>作り直す</button>
                 </div>
               ) : (
@@ -906,7 +1020,13 @@ function HomeTab(p) {
       var _doneN = wpc.tasks.filter(function (t) { return weekTaskDoneDate(data, ch.id, wpc.weekKey, t.id); }).length;
       d.weekStats[ch.id][wpc.weekKey] = { total: wpc.tasks.length, done: _doneN };
     }
-    d.weekPlan[ch.id] = { weekKey: wk, tasks: weekPoolGen(ch, data) };
+    var _pre = d.weekPlanNext && d.weekPlanNext[ch.id];
+    if (_pre && _pre.weekKey === wk && _pre.tasks) {
+      d.weekPlan[ch.id] = { weekKey: wk, tasks: _pre.tasks };
+      delete d.weekPlanNext[ch.id];
+    } else {
+      d.weekPlan[ch.id] = { weekKey: wk, tasks: weekPoolGen(ch, data) };
+    }
     if (d.kanjiPending && d.kanjiPending[ch.id] && d.kanjiPending[ch.id].length) {
       var _ti = (NOW.getDay() + 6) % 7;
       var _keep = [];
