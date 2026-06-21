@@ -120,6 +120,7 @@ export default function App() {
         if (!p.kanjiHistory) p.kanjiHistory = {};
         if (!p.weekPlan) p.weekPlan = {}; // 2026-06-06 週プール // 2026-05-24 漢字練習履歴
         if (!p.weekStats) p.weekStats = {}; // 2026-06-06 週ごとの達成スナップショット
+        if (!p.kanjiPending) p.kanjiPending = {}; // 2026-06-06 来週以降の漢字練習予約
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -539,7 +540,7 @@ function WeekPlanCard(p) {
   const [kanjiTestIdx, setKanjiTestIdx] = useState(-1);
   const [kanjiAddOpen, setKanjiAddOpen] = useState(false);
   const [kanjiInput, setKanjiInput] = useState("");
-  const [kanjiAddDay, setKanjiAddDay] = useState(0);
+  const [kanjiAddOff, setKanjiAddOff] = useState(0);
   var weekKey = weekStartKey(TD);
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var wp = (data.weekPlan && data.weekPlan[ch.id]) || null;
@@ -655,12 +656,23 @@ function WeekPlanCard(p) {
     var words = kanjiInput.trim().split(/[\s\u3001\uff0c,]+/).filter(function (w) { return w.trim(); });
     if (words.length === 0) return;
     var d = clone(data);
-    if (!d.weekPlan) d.weekPlan = {};
-    if (!d.weekPlan[ch.id] || d.weekPlan[ch.id].weekKey !== weekKey) d.weekPlan[ch.id] = { weekKey: weekKey, tasks: [] };
-    var dayDate = weekDatesOf(weekKey)[kanjiAddDay] || TD;
+    var _b = new Date(NOW); _b.setDate(_b.getDate() + kanjiAddOff);
+    var dayDate = _b.getFullYear() + "-" + String(_b.getMonth() + 1).padStart(2, "0") + "-" + String(_b.getDate()).padStart(2, "0");
+    var targetWeek = weekStartKey(dayDate);
     var kanjiStr = words.join(" ");
     var totalChars = words.reduce(function (s, w) { return s + w.length; }, 0);
-    d.weekPlan[ch.id].tasks.push({ id: ch.id + "_wk" + Date.now(), label: "漢字練習：「" + kanjiStr + "」をノートに1行ずつ書く", subject: "国語", action: "free", estMin: totalChars * 2, day: kanjiAddDay });
+    var taskId = ch.id + "_wk" + Date.now();
+    var taskLabel = "漢字練習：「" + kanjiStr + "」をノートに1行ずつ書く";
+    if (targetWeek === weekKey) {
+      if (!d.weekPlan) d.weekPlan = {};
+      if (!d.weekPlan[ch.id] || d.weekPlan[ch.id].weekKey !== weekKey) d.weekPlan[ch.id] = { weekKey: weekKey, tasks: [] };
+      var _di = weekDatesOf(weekKey).indexOf(dayDate);
+      d.weekPlan[ch.id].tasks.push({ id: taskId, label: taskLabel, subject: "国語", action: "free", estMin: totalChars * 2, day: _di >= 0 ? _di : todayIdx });
+    } else {
+      if (!d.kanjiPending) d.kanjiPending = {};
+      if (!d.kanjiPending[ch.id]) d.kanjiPending[ch.id] = [];
+      d.kanjiPending[ch.id].push({ id: taskId, date: dayDate, label: taskLabel, subject: "国語", estMin: totalChars * 2 });
+    }
     if (ch.id === "eishi" || ch.id === "yuzuki") {
       if (!d.kanjiList) d.kanjiList = {};
       if (!d.kanjiList[ch.id]) d.kanjiList[ch.id] = [];
@@ -798,9 +810,12 @@ function WeekPlanCard(p) {
                 <div style={{ padding: 8, background: "#F3E5F5", borderRadius: 8 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ まちがえた漢字の練習を追加</div>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
-                    {weekDatesOf(weekKey).map(function (dd, di) {
-                      var lbl = di === todayIdx ? "今日" : dayNames[di];
-                      return <button key={di} onClick={function () { setKanjiAddDay(di); }} style={{ ...S.smBtn, background: kanjiAddDay === di ? ch.color : "#f0f0f0", color: kanjiAddDay === di ? "#fff" : "#666", fontSize: 11, minWidth: 34, padding: "6px 8px" }}>{lbl}</button>;
+                    {[0, 1, 2, 3, 4, 5, 6].map(function (off) {
+                      var b = new Date(NOW); b.setDate(b.getDate() + off);
+                      var ds = b.getFullYear() + "-" + String(b.getMonth() + 1).padStart(2, "0") + "-" + String(b.getDate()).padStart(2, "0");
+                      var nextWk = weekStartKey(ds) !== weekKey;
+                      var lbl = off === 0 ? "今日" : off === 1 ? "明日" : dayNames[(todayIdx + off) % 7] + "よう日";
+                      return <button key={off} onClick={function () { setKanjiAddOff(off); }} style={{ ...S.smBtn, background: kanjiAddOff === off ? ch.color : "#f0f0f0", color: kanjiAddOff === off ? "#fff" : "#666", fontSize: 11, minWidth: 34, padding: "6px 8px" }}>{lbl}{nextWk ? "(来週)" : ""}</button>;
                     })}
                   </div>
                   <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, marginBottom: 6 }} />
@@ -813,7 +828,7 @@ function WeekPlanCard(p) {
               ) : !addOpen ? (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <button onClick={function () { setAddOpen(true); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", flex: 1 }}>＋ タスク</button>
-                  <button onClick={function () { setKanjiAddOpen(true); setKanjiAddDay(todayIdx); }} style={{ ...S.smBtn, background: "#F3E5F5", color: "#7B1FA2", flex: 1 }}>✏️ 漢字練習</button>
+                  <button onClick={function () { setKanjiAddOpen(true); setKanjiAddOff(0); }} style={{ ...S.smBtn, background: "#F3E5F5", color: "#7B1FA2", flex: 1 }}>✏️ 漢字練習</button>
                   <button onClick={regenWeek} style={{ ...S.smBtn, background: "#fff", color: "#E53935", border: "1px solid #E53935" }}>作り直す</button>
                 </div>
               ) : (
@@ -892,6 +907,17 @@ function HomeTab(p) {
       d.weekStats[ch.id][wpc.weekKey] = { total: wpc.tasks.length, done: _doneN };
     }
     d.weekPlan[ch.id] = { weekKey: wk, tasks: weekPoolGen(ch, data) };
+    if (d.kanjiPending && d.kanjiPending[ch.id] && d.kanjiPending[ch.id].length) {
+      var _ti = (NOW.getDay() + 6) % 7;
+      var _keep = [];
+      d.kanjiPending[ch.id].forEach(function (pend) {
+        if (weekStartKey(pend.date) <= wk) {
+          var _di2 = weekDatesOf(wk).indexOf(pend.date);
+          d.weekPlan[ch.id].tasks.push({ id: pend.id, label: pend.label, subject: pend.subject || "国語", action: "free", estMin: pend.estMin || 10, day: _di2 >= 0 ? _di2 : _ti });
+        } else { _keep.push(pend); }
+      });
+      d.kanjiPending[ch.id] = _keep;
+    }
     save(d);
   }, [ch.id, TD]);
   // Manual tasks (for self-managed / non-workbook)
