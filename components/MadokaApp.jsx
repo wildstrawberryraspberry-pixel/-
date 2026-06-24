@@ -122,6 +122,7 @@ export default function App() {
         if (!p.weekStats) p.weekStats = {}; // 2026-06-06 週ごとの達成スナップショット
         if (!p.kanjiPending) p.kanjiPending = {}; // 2026-06-06 来週以降の漢字練習予約
         if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
+        if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -530,7 +531,7 @@ function weekPoolGen(ch, data, preTasks) {
     var start = w.donePages + 1; var take = Math.min(n, w.totalPages - w.donePages); w.donePages += take;
     return { id: nid(), label: w.name + " P" + start + (take > 1 ? "-" + (start + take - 1) : ""), subject: w.subject, action: action, wbId: w.id, pages: take, estMin: take * w.minPerPage, day: day };
   };
-  for (var d = 0; d < 7; d++) {
+  for (var d = 0; d < 5; d++) { // 月〜金のみ課題を割り当て（土日は積み残しを片づける日）
     tasks.push({ id: nid(), label: "スマイルゼミ", subject: "", action: "smile", estMin: 15, day: d });
     if (ch.id === "yuzuki") {
       challenges.forEach(function (w) { var t = chalTask(w, d); if (t) tasks.push(t); });
@@ -552,6 +553,7 @@ function WeekPlanCard(p) {
   const [addWbId, setAddWbId] = useState("");
   const [addLabel, setAddLabel] = useState("");
   const [addMin, setAddMin] = useState("");
+  const [addDayIdx, setAddDayIdx] = useState(0);
   const [kanjiTestIdx, setKanjiTestIdx] = useState(-1);
   const [kanjiAddOpen, setKanjiAddOpen] = useState(false);
   const [kanjiInput, setKanjiInput] = useState("");
@@ -575,7 +577,9 @@ function WeekPlanCard(p) {
   var doneMin = info.reduce(function (s, x) { return s + (x.doneDate ? (x.t.estMin || 0) : 0); }, 0);
   var pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
   // 残りを残り日数で均等割り。day<=今日（今日指定・繰越・手動追加）は必ず今日に入れ、足りない分だけ先の日から補う。
-  var daysLeft = Math.max(1, 7 - todayIdx);
+  var isWeekend = todayIdx >= 5;
+  var weekdaysLeft = todayIdx <= 4 ? (5 - todayIdx) : 0;
+  var daysLeft = Math.max(1, weekdaysLeft);
   var undone = info.filter(function (x) { return !x.doneDate; });
   var doneTodayCount = info.filter(function (x) { return x.doneDate === TD; }).length;
   var targetCount = Math.ceil((undone.length + doneTodayCount) / daysLeft);
@@ -583,13 +587,16 @@ function WeekPlanCard(p) {
   var dueToday = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) <= todayIdx; });
   var future = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) > todayIdx; });
   var extra = Math.max(0, stillNeed - dueToday.length);
-  var todayList = dueToday.concat(future.slice(0, extra));
-  var laterList = future.slice(extra);
+  // 土日は積み残しをすべて今日のやることに（新規割り当てはしない）
+  var todayList = isWeekend ? undone.slice() : dueToday.concat(future.slice(0, extra));
+  var laterList = isWeekend ? [] : future.slice(extra);
+  var bonusGot = !!(data.weekBonus && data.weekBonus[ch.id] && data.weekBonus[ch.id][weekKey]);
   var advice = null, adviceBg = "#FFFDE7", adviceColor = "#8a6d00";
   if (totalCount > 0) {
     if (doneCount >= totalCount) { advice = "🎉 今週のタスク、ぜんぶ終わったよ！すごい！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
-    else if (todayList.length === 0) { advice = "✨ 今日のぶんはおわったよ！この調子！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
-    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = "📌 のこり" + undone.length + "個をあと" + daysLeft + "日でわけたよ。今日はあと" + todayList.length + "個やろう！"; }
+    else if (isWeekend) { advice = "⏰ 平日にできなかったぶんだよ。土日でのこり" + undone.length + "個をやろう！"; adviceBg = "#FFF3E0"; adviceColor = "#E65100"; }
+    else if (todayList.length === 0) { advice = "✨ 今日のぶんはおわったよ！この調子で平日に全部おわると土曜にボーナス5ポイント！"; adviceBg = "#E8F5E9"; adviceColor = "#2E7D32"; }
+    else { adviceBg = "#FFF3E0"; adviceColor = "#E65100"; advice = "📌 のこり" + undone.length + "個を平日のこり" + weekdaysLeft + "日でわけたよ。今日はあと" + todayList.length + "個やろう！"; }
   }
   var completeTask = function (t, elapsed, clearTimerKey) {
     var d = clone(data);
@@ -655,15 +662,15 @@ function WeekPlanCard(p) {
       var wb = wbs.find(function (w) { return w.id === addWbId; });
       if (!wb) return;
       if (wb.type === "challenge") {
-        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: estMin, day: todayIdx };
-        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: todayIdx };
+        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: estMin, day: addDayIdx };
+        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
         else return;
       } else {
-        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: todayIdx };
+        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: addDayIdx };
       }
     } else {
       if (!addLabel.trim()) return;
-      t = { id: ch.id + "_wa" + Date.now(), label: addLabel.trim(), subject: "", action: "free", estMin: estMin, day: todayIdx };
+      t = { id: ch.id + "_wa" + Date.now(), label: addLabel.trim(), subject: "", action: "free", estMin: estMin, day: addDayIdx };
     }
     d.weekPlan[ch.id].tasks.push(t);
     save(d);
@@ -811,6 +818,7 @@ function WeekPlanCard(p) {
           </div>
           <div style={S.progBar}><div style={{ height: "100%", borderRadius: 3, background: ch.color, width: pct + "%", transition: "width .4s" }} /></div>
           {advice && <div style={{ marginTop: 10, padding: "8px 10px", background: adviceBg, color: adviceColor, borderRadius: 8, fontSize: 12, fontWeight: 600, lineHeight: 1.5 }}>{advice}</div>}
+          {bonusGot && <div style={{ marginTop: 8, padding: "8px 10px", background: "#FFF8E1", color: "#F57F17", borderRadius: 8, fontSize: 12, fontWeight: 800, textAlign: "center" }}>🎉 平日で全部おわって ボーナス5ポイント！</div>}
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 2 }}>⭐ <Kid t={"今日のやること"} ch={ch} data={data} on={!isP} /></div>
             {kanjiDue && !kanjiDone && kanjiTestIdx < 0 && (
@@ -940,13 +948,21 @@ function WeekPlanCard(p) {
                 </div>
               ) : !addOpen ? (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <button onClick={function () { setAddOpen(true); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", flex: 1 }}>＋ タスク</button>
+                  <button onClick={function () { setAddOpen(true); setAddDayIdx(todayIdx); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", flex: 1 }}>＋ タスク</button>
                   <button onClick={function () { setKanjiAddOpen(true); setKanjiAddOff(0); }} style={{ ...S.smBtn, background: "#F3E5F5", color: "#7B1FA2", flex: 1 }}>✏️ 漢字練習</button>
                   <button onClick={function () { setNextOpen(true); }} style={{ ...S.smBtn, background: "#E3F2FD", color: "#1565C0", flex: 1 }}>📅 来週</button>
                   <button onClick={regenWeek} style={{ ...S.smBtn, background: "#fff", color: "#E53935", border: "1px solid #E53935" }}>作り直す</button>
                 </div>
               ) : (
                 <div style={{ padding: 8, background: "#f9f9f9", borderRadius: 8 }}>
+                  <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>追加する曜日（土日もOK）</div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                    {[0, 1, 2, 3, 4, 5, 6].map(function (di) {
+                      if (di < todayIdx) return null;
+                      var lbl = di === todayIdx ? "今日" : di === todayIdx + 1 ? "明日" : dayNames[di] + "よう日";
+                      return <button key={di} onClick={function () { setAddDayIdx(di); }} style={{ ...S.smBtn, background: addDayIdx === di ? ch.color : "#f0f0f0", color: addDayIdx === di ? "#fff" : "#666", fontSize: 11, minWidth: 30, padding: "5px 7px" }}>{lbl}</button>;
+                    })}
+                  </div>
                   <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                     <button onClick={function () { setAddWbId(""); }} style={{ ...S.smBtn, background: !addWbId ? ch.color : "#f0f0f0", color: !addWbId ? "#fff" : "#666", flex: 1 }}>自由入力</button>
                     <button onClick={function () { setAddWbId(wbs.length > 0 ? wbs[0].id : ""); }} style={{ ...S.smBtn, background: addWbId ? ch.color : "#f0f0f0", color: addWbId ? "#fff" : "#666", flex: 1 }}>問題集から</button>
@@ -1006,6 +1022,27 @@ function HomeTab(p) {
     d._dailySelections[ch.id][TD] = newSel;
     save(d);
   }, [ch.id, _planKey]);
+  // 2026-06-06 平日中（金曜まで）に今週のタスクを全部終えたら、土日にボーナス5pt（週1回）
+  useEffect(function () {
+    if (ch.id !== "eishi" && ch.id !== "yuzuki") return;
+    var ti = (NOW.getDay() + 6) % 7;
+    if (ti < 5) return;
+    var wk = weekStartKey(TD);
+    var wp = data.weekPlan && data.weekPlan[ch.id];
+    if (!wp || wp.weekKey !== wk || !wp.tasks || !wp.tasks.length) return;
+    if (data.weekBonus && data.weekBonus[ch.id] && data.weekBonus[ch.id][wk]) return;
+    var wkdays = weekDatesOf(wk).slice(0, 5);
+    var allByFri = wp.tasks.every(function (t) { var dd = weekTaskDoneDate(data, ch.id, wk, t.id); return dd && wkdays.indexOf(dd) >= 0; });
+    if (!allByFri) return;
+    var d = clone(data);
+    ensurePts(d, ch.id);
+    d.points[ch.id].balance += 5;
+    d.points[ch.id].history.push({ type: "earn", amount: 5, reason: "平日中に今週のタスク完了ボーナス", date: TD, id: "wb" + Date.now() });
+    if (!d.weekBonus) d.weekBonus = {};
+    if (!d.weekBonus[ch.id]) d.weekBonus[ch.id] = {};
+    d.weekBonus[ch.id][wk] = true;
+    save(d);
+  }, [ch.id, TD]);
   // 2026-06-06 週プール（叡志・優珠綺）: 月曜起点の週が未生成/前週なら自動生成
   useEffect(function () {
     if (ch.id !== "eishi" && ch.id !== "yuzuki") return;
