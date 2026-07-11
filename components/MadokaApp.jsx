@@ -3411,6 +3411,37 @@ function TestsTab(p) {
   // Group by type for chart
   var byType = {};
   testTypes.forEach(function (t) { byType[t] = sorted.filter(function (r) { return r.type === t; }).reverse(); });
+  // ─── 推移・頑張り分析用データ（2026-07-11 追加）───
+  var logs = (data.studyLogs && data.studyLogs[ch.id]) || [];
+  var checks = (data.todayChecks && data.todayChecks[ch.id]) || {};
+  function fmtD(dt) { return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"); }
+  function avgOf(rec) {
+    if (typeof rec.avg === "number") return rec.avg;
+    var ks = Object.keys(rec.scores || {}); if (ks.length === 0) return 0;
+    var t = 0, c = 0; ks.forEach(function (k) { if (typeof rec.scores[k] === "number") { t += rec.scores[k]; c++; } });
+    return c ? Math.round(t / c * 10) / 10 : 0;
+  }
+  function effLabel(sec) { var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60); return h > 0 ? h + "時間" + (m > 0 ? m + "分" : "") : m + "分"; }
+  // 時系列（古い順）
+  var chrono = records.slice().sort(function (a, b) { return a.date > b.date ? 1 : a.date < b.date ? -1 : 0; });
+  // 各テストの「前回テスト〜今回」の学習量（学習時間・タスク数）
+  var effortByRec = {};
+  chrono.forEach(function (rec, i) {
+    var end = rec.date;
+    var start;
+    if (i > 0) { start = chrono[i - 1].date; }
+    else { var sd = new Date(rec.date); sd.setDate(sd.getDate() - 30); start = fmtD(sd); }
+    var sec = 0, tasks = 0, actDays = {};
+    logs.forEach(function (l) { if (l.date && l.date > start && l.date <= end) { sec += l.seconds || 0; actDays[l.date] = 1; } });
+    Object.keys(checks).forEach(function (ds) {
+      if (ds > start && ds <= end) {
+        var dc = checks[ds] || {};
+        var cnt = Object.keys(dc).filter(function (k) { return k !== "_plan" && k !== "kanji_graded" && k.indexOf("time_") !== 0 && dc[k] === true; }).length;
+        if (cnt > 0) { tasks += cnt; actDays[ds] = 1; }
+      }
+    });
+    effortByRec[rec.id] = { sec: sec, tasks: tasks, start: start, end: end, first: i === 0, days: Object.keys(actDays).length };
+  });
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       {/* Header */}
@@ -3525,34 +3556,156 @@ function TestsTab(p) {
           </div>
         </div>
       )}
-      {/* Score trend per type */}
+      {/* 平均点の推移（折れ線・前回比） 2026-07-11 */}
       {testTypes.map(function (type) {
-        var typeRecs = byType[type] || [];
+        var typeRecs = byType[type] || []; // 古い順
         if (typeRecs.length === 0) return null;
+        var n = typeRecs.length;
+        var W = Math.max(300, n * 70), H = 168, padT = 24, padB = 52, padL = 18, padR = 14;
+        var plotH = H - padT - padB, plotW = W - padL - padR;
+        var xAt = function (i) { return n === 1 ? padL + plotW / 2 : padL + plotW * i / (n - 1); };
+        var yAt = function (v) { return padT + plotH * (1 - Math.max(0, Math.min(100, v)) / 100); };
+        var pts = typeRecs.map(function (rec, i) { return { x: xAt(i), y: yAt(avgOf(rec)), rec: rec, i: i }; });
+        var linePath = pts.map(function (pt, i) { return (i === 0 ? "M" : "L") + pt.x.toFixed(1) + " " + pt.y.toFixed(1); }).join(" ");
+        var selRec = null;
+        if (detail) { selRec = typeRecs.find(function (r) { return r.id === detail; }) || null; }
+        if (!selRec) selRec = typeRecs[typeRecs.length - 1];
+        var selEff = selRec ? effortByRec[selRec.id] : null;
         return (
           <div key={type} style={S.card}>
-            <div style={S.cardTitle}>📈 {type}の推移</div>
+            <div style={S.cardTitle}>📈 {type}の平均点の推移</div>
+            <div style={{ fontSize: 10, color: "#bbb", marginTop: -6, marginBottom: 6 }}>点をタップすると、その回までの頑張りが下に出ます</div>
             <div style={{ overflowX: "auto" }}>
-              <div style={{ display: "flex", gap: 0, minWidth: typeRecs.length * 70 }}>
-                {typeRecs.map(function (rec) {
-                  var maxScore = testSubjects.length * 100;
-                  var barH = maxScore > 0 ? Math.round((rec.total / maxScore) * 100) : 0;
+              <svg width={W} height={H} style={{ display: "block" }}>
+                {[0, 50, 100].map(function (g) {
+                  var y = yAt(g);
+                  return <g key={g}><line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#eee" strokeWidth="1" /><text x={2} y={y + 3} fontSize="8" fill="#ccc">{g}</text></g>;
+                })}
+                <path d={linePath} fill="none" stroke={ch.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                {pts.map(function (pt) {
+                  var rec = pt.rec;
+                  var prev = pt.i > 0 ? typeRecs[pt.i - 1] : null;
+                  var delta = prev ? Math.round((avgOf(rec) - avgOf(prev)) * 10) / 10 : null;
+                  var isSel = selRec && selRec.id === rec.id;
+                  var dt = new Date(rec.date);
+                  var dstr = (dt.getMonth() + 1) + "/" + dt.getDate();
                   return (
-                    <div key={rec.id} onClick={function () { setDetail(detail === rec.id ? null : rec.id); }} style={{ flex: 1, minWidth: 60, textAlign: "center", cursor: "pointer", padding: "0 2px" }}>
-                      <div style={{ fontSize: 13, fontWeight: 900, color: ch.color }}>{rec.total}</div>
-                      <div style={{ height: 60, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-                        <div style={{ width: 28, height: Math.max(4, barH * 0.6), background: "linear-gradient(180deg," + ch.color + "," + ch.color + "88)", borderRadius: "4px 4px 0 0" }} />
-                      </div>
-                      <div style={{ fontSize: 8, color: "#999", marginTop: 3 }}>{rec.name}</div>
-                      <div style={{ fontSize: 8, color: "#bbb" }}>{dl(rec.date)}</div>
-                    </div>
+                    <g key={rec.id} onClick={function () { setDetail(detail === rec.id ? null : rec.id); }} style={{ cursor: "pointer" }}>
+                      {isSel && <circle cx={pt.x} cy={pt.y} r="9" fill={ch.color} opacity="0.15" />}
+                      <circle cx={pt.x} cy={pt.y} r={isSel ? 5.5 : 4} fill={ch.color} stroke="#fff" strokeWidth="2" />
+                      <text x={pt.x} y={pt.y - 9} fontSize="11" fontWeight="800" fill={ch.color} textAnchor="middle">{avgOf(rec)}</text>
+                      <text x={pt.x} y={H - 34} fontSize="8" fill="#999" textAnchor="middle">{rec.name.length > 5 ? rec.name.slice(0, 5) : rec.name}</text>
+                      <text x={pt.x} y={H - 24} fontSize="8" fill="#ccc" textAnchor="middle">{dstr}</text>
+                      {delta !== null && <text x={pt.x} y={H - 11} fontSize="9" fontWeight="700" fill={delta > 0 ? "#4CAF50" : delta < 0 ? "#E53935" : "#999"} textAnchor="middle">{delta > 0 ? "▲" + delta : delta < 0 ? "▼" + Math.abs(delta) : "±0"}</text>}
+                    </g>
                   );
                 })}
-              </div>
+              </svg>
             </div>
+            {/* 頑張りひも付け（選択中の回） */}
+            {selRec && selEff && (
+              <div style={{ marginTop: 4, padding: "10px 12px", borderRadius: 10, background: ch.colorLight }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: ch.color, marginBottom: 6 }}>
+                  💪 「{selRec.name}」までの頑張り
+                  <span style={{ fontSize: 9, color: "#999", fontWeight: 600, marginLeft: 6 }}>
+                    {selEff.first ? "（テスト前30日間）" : "（前回テスト〜今回）"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "space-around" }}>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 900, color: "#2196F3" }}>{effLabel(selEff.sec)}</div><div style={{ fontSize: 9, color: "#999" }}>学習時間</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 900, color: "#4CAF50" }}>{selEff.tasks}個</div><div style={{ fontSize: 9, color: "#999" }}>タスク完了</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 900, color: "#FF9800" }}>{selEff.days}日</div><div style={{ fontSize: 9, color: "#999" }}>学習した日</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 900, color: ch.color }}>{avgOf(selRec)}点</div><div style={{ fontSize: 9, color: "#999" }}>平均点</div></div>
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
+      {/* 教科べつの推移 2026-07-11 */}
+      {chrono.length >= 2 && testSubjects.length > 0 && (function () {
+        var rows = testSubjects.map(function (subj) {
+          var series = chrono.filter(function (r) { return r.scores && typeof r.scores[subj] === "number"; }).map(function (r) { return { v: r.scores[subj], date: r.date }; });
+          return { subj: subj, series: series };
+        }).filter(function (r) { return r.series.length > 0; });
+        if (rows.length === 0) return null;
+        return (
+          <div style={S.card}>
+            <div style={S.cardTitle}>📊 教科べつの推移</div>
+            {rows.map(function (r) {
+              var series = r.series;
+              var latest = series[series.length - 1].v;
+              var delta = series.length > 1 ? latest - series[series.length - 2].v : null;
+              var sn = series.length, sw = Math.max(70, sn * 20), sh = 30, sp = 4;
+              var sx = function (i) { return sn === 1 ? sw / 2 : sp + (sw - 2 * sp) * i / (sn - 1); };
+              var sy = function (v) { return sp + (sh - 2 * sp) * (1 - Math.max(0, Math.min(100, v)) / 100); };
+              var path = series.map(function (s, i) { return (i === 0 ? "M" : "L") + sx(i).toFixed(1) + " " + sy(s.v).toFixed(1); }).join(" ");
+              var lineColor = latest >= 80 ? "#4CAF50" : latest >= 60 ? "#FF9800" : "#E53935";
+              return (
+                <div key={r.subj} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid #f5f5f5" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#555", width: 40, flexShrink: 0 }}>{r.subj}</div>
+                  <svg width={sw} height={sh} style={{ flexShrink: 0 }}>
+                    <path d={path} fill="none" stroke={ch.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" opacity="0.55" />
+                    {series.map(function (s, i) { return <circle key={i} cx={sx(i)} cy={sy(s.v)} r={i === sn - 1 ? 3 : 2} fill={i === sn - 1 ? lineColor : ch.color} />; })}
+                  </svg>
+                  <div style={{ marginLeft: "auto", textAlign: "right", flexShrink: 0 }}>
+                    <span style={{ fontSize: 16, fontWeight: 900, color: lineColor }}>{latest}</span>
+                    {delta !== null && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 5, color: delta > 0 ? "#4CAF50" : delta < 0 ? "#E53935" : "#999" }}>{delta > 0 ? "▲" + delta : delta < 0 ? "▼" + Math.abs(delta) : "±0"}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+      {/* 学習量と点数の関係 2026-07-11 */}
+      {(function () {
+        var cp = chrono.map(function (r) { var e = effortByRec[r.id]; return { x: e.sec / 3600, y: avgOf(r), rec: r }; });
+        if (cp.length < 3) {
+          if (records.length === 0) return null;
+          return (
+            <div style={S.card}>
+              <div style={S.cardTitle}>🔗 学習量と点数の関係</div>
+              <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: "10px 0", lineHeight: 1.7 }}>テストの記録が3回以上たまると、<br />「勉強した時間」と「点数」の関係が見えてきます。</div>
+            </div>
+          );
+        }
+        var mx = cp.reduce(function (s, p) { return s + p.x; }, 0) / cp.length;
+        var my = cp.reduce(function (s, p) { return s + p.y; }, 0) / cp.length;
+        var sxy = 0, sxx = 0, syy = 0;
+        cp.forEach(function (p) { sxy += (p.x - mx) * (p.y - my); sxx += (p.x - mx) * (p.x - mx); syy += (p.y - my) * (p.y - my); });
+        var r = (sxx > 0 && syy > 0) ? sxy / Math.sqrt(sxx * syy) : 0;
+        var maxX = Math.max.apply(null, cp.map(function (p) { return p.x; }).concat([1]));
+        var W = 320, H = 190, padT = 14, padB = 34, padL = 30, padR = 14;
+        var plotH = H - padT - padB, plotW = W - padL - padR;
+        var px = function (x) { return padL + plotW * (maxX > 0 ? x / maxX : 0); };
+        var py = function (y) { return padT + plotH * (1 - Math.max(0, Math.min(100, y)) / 100); };
+        var comment, cColor;
+        if (r >= 0.3) { comment = "📈 よく勉強した回ほど、点数が高い傾向が出ています。頑張りが結果につながっています。"; cColor = "#4CAF50"; }
+        else if (r <= -0.3) { comment = "🤔 勉強時間と点数が逆になっています。テスト範囲の難しさや、勉強のやり方を見直すヒントかもしれません。"; cColor = "#FF9800"; }
+        else { comment = "➖ 今のところ、勉強時間と点数のはっきりした関係は見えていません。"; cColor = "#999"; }
+        return (
+          <div style={S.card}>
+            <div style={S.cardTitle}>🔗 学習量と点数の関係</div>
+            <div style={{ overflowX: "auto" }}>
+              <svg width={W} height={H} style={{ display: "block", margin: "0 auto" }}>
+                {[0, 50, 100].map(function (g) { var y = py(g); return <g key={g}><line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#eee" strokeWidth="1" /><text x={2} y={y + 3} fontSize="8" fill="#ccc">{g}</text></g>; })}
+                {r >= 0.3 || r <= -0.3 ? (function () {
+                  var b = sxx > 0 ? sxy / sxx : 0; var a = my - b * mx;
+                  var x1 = 0, x2 = maxX;
+                  return <line x1={px(x1)} y1={py(a + b * x1)} x2={px(x2)} y2={py(a + b * x2)} stroke={cColor} strokeWidth="2" strokeDasharray="5 4" opacity="0.6" />;
+                })() : null}
+                {cp.map(function (p, i) { return <circle key={i} cx={px(p.x)} cy={py(p.y)} r="5" fill={ch.color} opacity="0.75" stroke="#fff" strokeWidth="1.5" />; })}
+                <text x={padL + plotW / 2} y={H - 4} fontSize="9" fill="#999" textAnchor="middle">学習時間（時間）→</text>
+                <text x={px(0)} y={H - 20} fontSize="8" fill="#bbb" textAnchor="middle">0</text>
+                <text x={px(maxX)} y={H - 20} fontSize="8" fill="#bbb" textAnchor="middle">{Math.round(maxX)}h</text>
+              </svg>
+            </div>
+            <div style={{ fontSize: 8, color: "#ccc", textAlign: "right", marginTop: -4 }}>たてじく＝平均点 / よこじく＝そのテストまでの学習時間</div>
+            <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 10, background: cColor + "15", fontSize: 12, color: "#555", lineHeight: 1.7 }}>{comment}</div>
+          </div>
+        );
+      })()}
       {/* Record list */}
       {sorted.length > 0 && (
         <div style={S.card}>
@@ -3587,6 +3740,14 @@ function TestsTab(p) {
                         );
                       })}
                     </div>
+                    {effortByRec[rec.id] && (
+                      <div style={{ display: "flex", gap: 8, justifyContent: "center", padding: "8px 0", marginBottom: 6, borderTop: "1px solid #f5f5f5", fontSize: 11, color: "#888" }}>
+                        <span>💪 この回まで:</span>
+                        <span style={{ color: "#2196F3", fontWeight: 700 }}>{effLabel(effortByRec[rec.id].sec)}</span>
+                        <span style={{ color: "#4CAF50", fontWeight: 700 }}>{effortByRec[rec.id].tasks}タスク</span>
+                        <span style={{ color: "#FF9800", fontWeight: 700 }}>{effortByRec[rec.id].days}日</span>
+                      </div>
+                    )}
                     {isP && (
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                         <button onClick={function () { startEdit(rec); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666" }}>✏️ 編集</button>
