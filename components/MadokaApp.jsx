@@ -40,6 +40,11 @@ function getToday() {
 var NOW = new Date();
 var TD = getToday().td;
 var TDI = getToday().tdi;
+// ☀️ 夏休みモード（2026-07-20〜2026-08-25）: 叡志・優珠綺の「1日の目安学習時間」を表示。タスクの自動配分量は変更しない。
+var SUMMER_RANGE = { start: "2026-07-20", end: "2026-08-25" };
+var SUMMER_TARGET = { eishi: { total: 100, am: 50, pm: 50 }, yuzuki: { total: 60, am: 30, pm: 30 } };
+function isSummerDay(ds) { return !!ds && ds >= SUMMER_RANGE.start && ds <= SUMMER_RANGE.end; }
+function isWeekday(ds) { try { var p = ds.split("-"); var d = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])).getDay(); return d >= 1 && d <= 5; } catch (e) { return true; } }
 // ═══ EISHI WORKBOOKS PRESET ═══
 var EISHI_WBS = [
   { id: "wb_chal_koku", name: "チャレンジ国語", subject: "国語", type: "challenge", totalUnits: 5, doneUnits: 2, hasTest: true, testDone: false, minPerUnit: 15, priority: "high", monthly: true },
@@ -805,6 +810,33 @@ function WeekPlanCard(p) {
         <div style={{ ...S.cardTitle, margin: 0 }}><Kid t={"📅 今週のタスク"} ch={ch} data={data} on={!isP} /></div>
         <div style={{ fontSize: 11, color: "#999" }}>{dayNames[todayIdx]}よう日</div>
       </div>
+      {/* ☀️ 夏休みモードの目安バナー（叡志・優珠綺／平日のみ） 2026-07-19 */}
+      {(function () {
+        var sm = SUMMER_TARGET[ch.id];
+        if (!sm || !isSummerDay(TD) || !isWeekday(TD)) return null;
+        var todaySec = ((data.studyLogs && data.studyLogs[ch.id]) || []).filter(function (l) { return l.date === TD; }).reduce(function (s, l) { return s + (l.seconds || 0); }, 0);
+        var todayMin = Math.floor(todaySec / 60);
+        var pctT = sm.total > 0 ? Math.min(100, Math.round(todayMin / sm.total * 100)) : 0;
+        var reached = todayMin >= sm.total;
+        return (
+          <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 12, background: "linear-gradient(135deg,#FFF3E0,#FFFDE7)", border: "1.5px solid #FFCC80" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: "#EF6C00" }}><Kid t={"☀️ なつやすみモード"} ch={ch} data={data} on={!isP} /></span>
+              <span style={{ fontSize: 10, color: "#B0855B" }}>〜8/25</span>
+            </div>
+            <div style={{ fontSize: 11, color: "#8D6E63", marginBottom: 6 }}>
+              <Kid t={"きょうの目安 " + sm.total + "分（午前" + sm.am + "分＋午後" + sm.pm + "分）"} ch={ch} data={data} on={!isP} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+              <span style={{ color: "#666", fontWeight: 700 }}><Kid t={"きょうの学習 " + todayMin + "分 / " + sm.total + "分"} ch={ch} data={data} on={!isP} /></span>
+              <span style={{ color: reached ? "#4CAF50" : "#F57F17", fontWeight: 700 }}>{reached ? <Kid t={"🎉 たっせい！"} ch={ch} data={data} on={!isP} /> : pctT + "%"}</span>
+            </div>
+            <div style={{ height: 6, background: "#FFE0B2", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ height: "100%", borderRadius: 3, background: reached ? "#4CAF50" : "#FF9800", width: pctT + "%", transition: "width .4s" }} />
+            </div>
+          </div>
+        );
+      })()}
       {totalCount === 0 ? (
         <div style={{ textAlign: "center", padding: 14, color: "#bbb", fontSize: 12 }}>
           <Kid t={"今週のタスクを準備します…"} ch={ch} data={data} on={!isP} />
