@@ -45,6 +45,8 @@ var SUMMER_RANGE = { start: "2026-07-20", end: "2026-08-25" };
 var SUMMER_TARGET = { eishi: { total: 100, am: 50, pm: 50 }, yuzuki: { total: 60, am: 30, pm: 30 } };
 function isSummerDay(ds) { return !!ds && ds >= SUMMER_RANGE.start && ds <= SUMMER_RANGE.end; }
 function isWeekday(ds) { try { var p = ds.split("-"); var d = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])).getDay(); return d >= 1 && d <= 5; } catch (e) { return true; } }
+// 😴 お休み設定（子どもごと）: data.restDays[chId][YYYY-MM-DD] = true。旅行など事前に学習できない日を休みにでき、その日はタスクを出さず翌日以降に自動で回す。
+function isRestDay(data, chId, ds) { return !!(data && data.restDays && data.restDays[chId] && data.restDays[chId][ds]); }
 // ═══ EISHI WORKBOOKS PRESET ═══
 var EISHI_WBS = [
   { id: "wb_chal_koku", name: "チャレンジ国語", subject: "国語", type: "challenge", totalUnits: 5, doneUnits: 2, hasTest: true, testDone: false, minPerUnit: 15, priority: "high", monthly: true },
@@ -582,8 +584,14 @@ function WeekPlanCard(p) {
   var doneMin = info.reduce(function (s, x) { return s + (x.doneDate ? (x.t.estMin || 0) : 0); }, 0);
   var pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
   // 残りを残り日数で均等割り。day<=今日（今日指定・繰越・手動追加）は必ず今日に入れ、足りない分だけ先の日から補う。
+  // 😴 お休みの平日は「学習できる日」から除外して、旅行日ぶんを他の平日に自動で寄せる。
+  var restSet = (data.restDays && data.restDays[ch.id]) || {};
+  var weekDates = weekDatesOf(weekKey);
+  var todayRest = !!restSet[TD];
   var isWeekend = todayIdx >= 5;
-  var weekdaysLeft = todayIdx <= 4 ? (5 - todayIdx) : 0;
+  var studyWeekdaysLeft = 0;
+  for (var _wd = todayIdx; _wd <= 4; _wd++) { if (!restSet[weekDates[_wd]]) studyWeekdaysLeft++; }
+  var weekdaysLeft = todayIdx <= 4 ? studyWeekdaysLeft : 0;
   var daysLeft = Math.max(1, weekdaysLeft);
   var undone = info.filter(function (x) { return !x.doneDate; });
   var doneTodayCount = info.filter(function (x) { return x.doneDate === TD; }).length;
@@ -592,9 +600,9 @@ function WeekPlanCard(p) {
   var dueToday = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) <= todayIdx; });
   var future = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) > todayIdx; });
   var extra = Math.max(0, stillNeed - dueToday.length);
-  // 土日は積み残しをすべて今日のやることに（新規割り当てはしない）
-  var todayList = isWeekend ? undone.slice() : dueToday.concat(future.slice(0, extra));
-  var laterList = isWeekend ? [] : future.slice(extra);
+  // 土日は積み残しをすべて今日のやることに（新規割り当てはしない）。お休みの日はタスクを出さない。
+  var todayList = todayRest ? [] : (isWeekend ? undone.slice() : dueToday.concat(future.slice(0, extra)));
+  var laterList = todayRest ? undone.slice() : (isWeekend ? [] : future.slice(extra));
   var bonusGot = !!(data.weekBonus && data.weekBonus[ch.id] && data.weekBonus[ch.id][weekKey]);
   var advice = null, adviceBg = "#FFFDE7", adviceColor = "#8a6d00";
   if (totalCount > 0) {
@@ -657,6 +665,34 @@ function WeekPlanCard(p) {
     d.weekPlan[ch.id] = { weekKey: weekKey, tasks: weekPoolGen(ch, data) };
     save(d);
   };
+  // 手動追加時の開始ページ算出：対象日までに予定済み（未完）のページ分を積算し、前日と同じページになる重複を防ぐ（2026-07-19）
+  var _isPageAction = function (a) { return a === "pages" || a === "pit_pages"; };
+  var effDoneForAdd = function (wb, scope, targetDay) {
+    var doneP = wb.donePages || 0;
+    var addP = 0;
+    // 今週プランの未完ページタスク（完了分は donePages に反映済みなので除外）
+    info.forEach(function (x) {
+      var t = x.t;
+      if (t.wbId !== wb.id || !_isPageAction(t.action) || !t.pages || x.doneDate) return;
+      if (scope === "this") { if ((t.day == null ? 0 : t.day) <= targetDay) addP += t.pages; }
+      else { addP += t.pages; } // 来週追加のときは、今週の未完はすべて先に消費される
+    });
+    // 来週プランのページタスク（来週内での対象日まで）
+    if (scope === "next" && nextTasks) {
+      nextTasks.forEach(function (t) {
+        if (t.wbId !== wb.id || !_isPageAction(t.action) || !t.pages) return;
+        if ((t.day == null ? 0 : t.day) <= targetDay) addP += t.pages;
+      });
+    }
+    return doneP + addP;
+  };
+  var pageLabelFrom = function (effDone, numPages, wb) {
+    var start = effDone + 1;
+    var end = Math.min(start + numPages - 1, wb.totalPages);
+    if (start > wb.totalPages) return "完了";
+    if (start === end) return "P" + start;
+    return "P" + start + "-P" + end;
+  };
   var addTask = function () {
     var d = clone(data);
     if (!d.weekPlan) d.weekPlan = {};
@@ -671,7 +707,8 @@ function WeekPlanCard(p) {
         else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
         else return;
       } else {
-        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: addDayIdx };
+        var _eff = effDoneForAdd(wb, "this", addDayIdx);
+        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabelFrom(_eff, 2, wb), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: addDayIdx };
       }
     } else {
       if (!addLabel.trim()) return;
@@ -754,7 +791,8 @@ function WeekPlanCard(p) {
         else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
         else return;
       } else {
-        t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: 2 * (wb.minPerPage || 3), day: naddDay };
+        var _effN = effDoneForAdd(wb, "next", naddDay);
+        t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + pageLabelFrom(_effN, 2, wb), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: 2 * (wb.minPerPage || 3), day: naddDay };
       }
     } else {
       if (!naddLabel.trim()) return;
@@ -813,7 +851,7 @@ function WeekPlanCard(p) {
       {/* ☀️ 夏休みモードの目安バナー（叡志・優珠綺／平日のみ） 2026-07-19 */}
       {(function () {
         var sm = SUMMER_TARGET[ch.id];
-        if (!sm || !isSummerDay(TD) || !isWeekday(TD)) return null;
+        if (!sm || !isSummerDay(TD) || !isWeekday(TD) || todayRest) return null;
         var todaySec = ((data.studyLogs && data.studyLogs[ch.id]) || []).filter(function (l) { return l.date === TD; }).reduce(function (s, l) { return s + (l.seconds || 0); }, 0);
         var todayMin = Math.floor(todaySec / 60);
         var pctT = sm.total > 0 ? Math.min(100, Math.round(todayMin / sm.total * 100)) : 0;
@@ -1029,6 +1067,15 @@ function HomeTab(p) {
   var todayStudySec = logs.reduce(function (s, l) { return s + l.seconds; }, 0);
   var studyMin = Math.floor(todayStudySec / 60);
   var timeLimit = ch.id === "eishi" ? 50 : 0; // 50min limit for eishi
+  // 😴 お休み判定・切替（今日）
+  var todayRest = isRestDay(data, ch.id, TD);
+  var setTodayRest = function (on) {
+    var d = clone(data);
+    if (!d.restDays) d.restDays = {};
+    if (!d.restDays[ch.id]) d.restDays[ch.id] = {};
+    if (on) d.restDays[ch.id][TD] = true; else delete d.restDays[ch.id][TD];
+    save(d);
+  };
   // Build today's plan from workbooks
   var plan = isM ? buildTodayPlan(ch, data) : [];
   var donePlanCount = plan.filter(function (t) { return t.done; }).length;
@@ -1252,12 +1299,27 @@ function HomeTab(p) {
           </div>
         )}
       </div>
-      {(ch.id === "eishi" || ch.id === "yuzuki") && (
+      {/* 😴 お休みの日はタスクを出さず、おやすみカードを表示 */}
+      {todayRest && (
+        <div style={{ ...S.card, textAlign: "center", padding: 24, background: "linear-gradient(135deg,#EDE7F6,#E3F2FD)", border: "1.5px solid #B39DDB" }}>
+          <div style={{ fontSize: 40 }}>😴</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "#5E35B1", marginTop: 4 }}><Kid t={"きょうはおやすみ"} ch={ch} data={data} on={!isP} /></div>
+          <div style={{ fontSize: 12, color: "#7E57C2", marginTop: 6, lineHeight: 1.6 }}><Kid t={"きょうの学習はおやすみです。できなかったぶんは、また今度わけてやります。"} ch={ch} data={data} on={!isP} /></div>
+          {isP && <button onClick={function () { setTodayRest(false); }} style={{ ...S.smBtn, background: "#7E57C2", color: "#fff", marginTop: 14 }}>おやすみを解除する</button>}
+        </div>
+      )}
+      {!todayRest && (ch.id === "eishi" || ch.id === "yuzuki") && (
         <WeekPlanCard ch={ch} data={data} save={save} isP={isP} />
       )}
       {/* TODAY'S PLAN — the main feature */}
-      {isM && plan.length > 0 && (
+      {!todayRest && isM && plan.length > 0 && (
         <TodayPlanCard ch={ch} data={data} save={save} isP={isP} plan={plan} pendingPlan={pendingPlan} donePlan={donePlan} totalRemain={totalRemain} timeLimit={timeLimit} studyMin={studyMin} checkPlanItem={checkPlanItem} />
+      )}
+      {/* 親用: 今日をお休みにする */}
+      {!todayRest && isP && (
+        <button onClick={function () { setTodayRest(true); }} style={{ width: "100%", padding: 10, borderRadius: 10, border: "1.5px dashed #B39DDB", background: "#F7F5FC", color: "#7E57C2", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginBottom: 10 }}>
+          😴 今日はおやすみにする（旅行・予定など）
+        </button>
       )}
       {/* Manual tasks for today (all modes) */}
       {ch.mode === "self" && manualToday.length > 0 && (
@@ -2616,6 +2678,15 @@ function ReviewTab(p) {
   var logs = (data.studyLogs && data.studyLogs[ch.id]) || [];
   var checks = (data.todayChecks && data.todayChecks[ch.id]) || {};
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
+  var restSet = (data.restDays && data.restDays[ch.id]) || {};
+  // 😴 指定日のお休みを切替（旅行など事前設定に使う）
+  var toggleRestOn = function (ds) {
+    var d = clone(data);
+    if (!d.restDays) d.restDays = {};
+    if (!d.restDays[ch.id]) d.restDays[ch.id] = {};
+    if (d.restDays[ch.id][ds]) delete d.restDays[ch.id][ds]; else d.restDays[ch.id][ds] = true;
+    save(d);
+  };
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDay, setSelectedDay] = useState(null); // date string or null
   const [editLogId, setEditLogId] = useState(null);
@@ -2986,10 +3057,13 @@ function ReviewTab(p) {
             var isToday = md.date === TD;
             var isSel = md.date === selectedDay;
             var hasAct = md.count > 0 || md.sec > 0;
+            var isRest = !!restSet[md.date];
             return (
-              <div key={md.date} onClick={function () { setSelectedDay(isSel ? null : md.date); setEditLogId(null); }} style={{ textAlign: "center", padding: 3, borderRadius: 6, background: isSel ? ch.color + "25" : isToday ? ch.color + "18" : hasAct ? "#E8F5E9" : "transparent", border: isSel ? "2px solid " + ch.color : isToday ? "2px solid " + ch.color + "60" : "2px solid transparent", minHeight: 36, cursor: "pointer" }}>
-                <div style={{ fontSize: 11, fontWeight: isSel || isToday ? 800 : 400, color: isSel ? ch.color : isToday ? ch.color : "#555" }}>{md.day}</div>
-                {hasAct && (
+              <div key={md.date} onClick={function () { setSelectedDay(isSel ? null : md.date); setEditLogId(null); }} style={{ textAlign: "center", padding: 3, borderRadius: 6, background: isSel ? ch.color + "25" : isRest ? "#EDE7F6" : isToday ? ch.color + "18" : hasAct ? "#E8F5E9" : "transparent", border: isSel ? "2px solid " + ch.color : isRest ? "2px solid #B39DDB" : isToday ? "2px solid " + ch.color + "60" : "2px solid transparent", minHeight: 36, cursor: "pointer" }}>
+                <div style={{ fontSize: 11, fontWeight: isSel || isToday ? 800 : 400, color: isSel ? ch.color : isRest ? "#7E57C2" : isToday ? ch.color : "#555" }}>{md.day}</div>
+                {isRest ? (
+                  <div style={{ fontSize: 11, marginTop: 1 }}>😴</div>
+                ) : hasAct && (
                   <div style={{ marginTop: 1 }}>
                     {md.count > 0 && <div style={{ fontSize: 7, color: "#4CAF50", fontWeight: 700 }}>{md.count}個</div>}
                     {md.sec > 0 && <div style={{ fontSize: 7, color: "#2196F3" }}>{Math.floor(md.sec / 60)}分</div>}
@@ -3011,6 +3085,16 @@ function ReviewTab(p) {
             <MStat l="タスク" v={dayDetail.doneCount + "個"} c="#4CAF50" />
             <MStat l="学習時間" v={Math.floor(dayDetail.totalSec / 60) + "分"} c="#2196F3" />
           </div>
+          {/* 😴 お休み設定（旅行など事前に休みにできる） */}
+          {isP && (function () {
+            var selRest = !!restSet[selectedDay];
+            return (
+              <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 8, background: selRest ? "#EDE7F6" : "#FAFAFA", border: "1px solid " + (selRest ? "#B39DDB" : "#eee"), display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: selRest ? "#7E57C2" : "#888" }}>{selRest ? "😴 この日はおやすみ" : "この日をおやすみにできます"}</span>
+                <button onClick={function () { toggleRestOn(selectedDay); }} style={{ ...S.smBtn, background: selRest ? "#eee" : "#7E57C2", color: selRest ? "#666" : "#fff" }}>{selRest ? "解除する" : "😴 おやすみにする"}</button>
+              </div>
+            );
+          })()}
           {dayDetail.logs.length === 0 && <div style={{ fontSize: 12, color: "#ccc", textAlign: "center", padding: 10 }}>この日の記録はありません</div>}
           {dayDetail.logs.map(function (l) {
             var isEditing = editLogId === l.id;
