@@ -556,6 +556,7 @@ function WeekPlanCard(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   const [showAhead, setShowAhead] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  const [showWeekAll, setShowWeekAll] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addWbId, setAddWbId] = useState("");
   const [addLabel, setAddLabel] = useState("");
@@ -655,7 +656,12 @@ function WeekPlanCard(p) {
   };
   var removeTask = function (taskId) {
     var d = clone(data);
-    if (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) d.weekPlan[ch.id].tasks = d.weekPlan[ch.id].tasks.filter(function (t) { return t.id !== taskId; });
+    var removed = null;
+    if (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) {
+      removed = d.weekPlan[ch.id].tasks.find(function (t) { return t.id === taskId; });
+      d.weekPlan[ch.id].tasks = d.weekPlan[ch.id].tasks.filter(function (t) { return t.id !== taskId; });
+    }
+    if (removed && removed.wbId && _isPageAction(removed.action)) reseqPages(d, removed.wbId, "this");
     save(d);
   };
   var regenWeek = function () {
@@ -693,6 +699,36 @@ function WeekPlanCard(p) {
     if (start === end) return "P" + start;
     return "P" + start + "-P" + end;
   };
+  // 追加・削除のあと、その問題集の未完ページタスクを曜日順に一括で採番し直す。
+  // これで「後ろの日の自動タスクと同じページになる」重複を防ぐ（2026-07-20）。
+  var reseqPages = function (d, wbId, scope) {
+    var wb = ((d.workbooks && d.workbooks[ch.id]) || []).find(function (w) { return w.id === wbId; });
+    if (!wb || wb.type === "challenge") return;
+    var doneOf = function (t) { return !!weekTaskDoneDate(data, ch.id, weekKey, t.id); };
+    var thisArr = (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) || [];
+    var base = wb.donePages || 0;
+    if (scope === "next") {
+      // 来週は「今週の未完ぶんをすべて消化した後」から続ける
+      thisArr.forEach(function (t) { if (t.wbId === wbId && _isPageAction(t.action) && t.pages && !doneOf(t)) base += t.pages; });
+    }
+    var arr = scope === "next"
+      ? ((d.weekPlanNext && d.weekPlanNext[ch.id] && d.weekPlanNext[ch.id].tasks) || [])
+      : thisArr;
+    var idxOf = {}; arr.forEach(function (t, i) { idxOf[t.id] = i; });
+    var pts = arr.filter(function (t) {
+      return t.wbId === wbId && _isPageAction(t.action) && t.pages && (scope === "next" || !doneOf(t));
+    }).sort(function (a, b) {
+      var da = (a.day == null ? 0 : a.day), db = (b.day == null ? 0 : b.day);
+      return da !== db ? da - db : idxOf[a.id] - idxOf[b.id];
+    });
+    var cursor = base;
+    pts.forEach(function (t) {
+      var start = cursor + 1;
+      var end = Math.min(start + (t.pages || 0) - 1, wb.totalPages);
+      t.label = wb.name + " " + (start > wb.totalPages ? "完了" : (start === end ? "P" + start : "P" + start + "-P" + end));
+      cursor += (t.pages || 0);
+    });
+  };
   var addTask = function () {
     var d = clone(data);
     if (!d.weekPlan) d.weekPlan = {};
@@ -715,6 +751,7 @@ function WeekPlanCard(p) {
       t = { id: ch.id + "_wa" + Date.now(), label: addLabel.trim(), subject: "", action: "free", estMin: estMin, day: addDayIdx };
     }
     d.weekPlan[ch.id].tasks.push(t);
+    if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, "this");
     save(d);
     setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin("");
   };
@@ -799,6 +836,7 @@ function WeekPlanCard(p) {
       t = { id: ch.id + "_nx" + Date.now(), label: naddLabel.trim(), subject: "", action: "free", estMin: 10, day: naddDay };
     }
     d.weekPlanNext[ch.id].tasks.push(t);
+    if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, "next");
     save(d);
     setNaddLabel(""); setNaddWbId("");
   };
@@ -946,6 +984,40 @@ function WeekPlanCard(p) {
               })}
             </div>
           )}
+          {/* 📋 今週ぜんぶ（曜日べつ）— 手動で確認・編集用 2026-07-19 */}
+          <div style={{ marginTop: 10 }}>
+            <button onClick={function () { setShowWeekAll(!showWeekAll); }} style={{ ...S.smBtn, background: showWeekAll ? ch.color : "#EEF3FF", color: showWeekAll ? "#fff" : "#3F5DA0", width: "100%" }}>{showWeekAll ? "▲ 今週ぜんぶをとじる" : "📋 今週ぜんぶを見る（曜日べつ）"}</button>
+            {showWeekAll && (
+              <div style={{ marginTop: 6, padding: 8, background: "#F7F9FC", borderRadius: 8 }}>
+                {[0, 1, 2, 3, 4, 5, 6].map(function (di) {
+                  var dts = info.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) === di; });
+                  var restD = !!restSet[weekDates[di]];
+                  if (dts.length === 0 && !restD) return null;
+                  var isTd = di === todayIdx;
+                  return (
+                    <div key={di} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: isTd ? ch.color : "#888", marginBottom: 3 }}>
+                        {dayNames[di]}よう日{isTd ? "（今日）" : ""}{restD ? " 😴おやすみ" : ""}
+                      </div>
+                      {dts.length === 0 && <div style={{ fontSize: 11, color: "#ccc", paddingLeft: 4 }}>―</div>}
+                      {dts.map(function (x) {
+                        var t = x.t; var done = !!x.doneDate;
+                        return (
+                          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12, opacity: done ? 0.5 : 1 }}>
+                            <span>{done ? "✓" : emojiOf(t.action)}</span>
+                            <span style={{ flex: 1, textDecoration: done ? "line-through" : "none" }}><Kid t={t.label} ch={ch} data={data} on={!isP} /></span>
+                            {t.estMin ? <span style={{ fontSize: 10, color: "#bbb" }}>{t.estMin}分</span> : null}
+                            {isP && !done && <button onClick={function () { removeTask(t.id); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#ccc" }}>🗑</button>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                {isP && <div style={{ fontSize: 10, color: "#999", marginTop: 4, lineHeight: 1.5 }}>タスクの追加は下の「＋ タスク」から曜日を選んでできます。</div>}
+              </div>
+            )}
+          </div>
           {isP && (
             <div style={{ marginTop: 10, borderTop: "1px dashed #eee", paddingTop: 8 }}>
               {nextOpen ? (
