@@ -40,13 +40,6 @@ function getToday() {
 var NOW = new Date();
 var TD = getToday().td;
 var TDI = getToday().tdi;
-// ☀️ 夏休みモード（2026-07-20〜2026-08-25）: 叡志・優珠綺の「1日の目安学習時間」を表示。タスクの自動配分量は変更しない。
-var SUMMER_RANGE = { start: "2026-07-20", end: "2026-08-25" };
-var SUMMER_TARGET = { eishi: { total: 100, am: 50, pm: 50 }, yuzuki: { total: 60, am: 30, pm: 30 } };
-function isSummerDay(ds) { return !!ds && ds >= SUMMER_RANGE.start && ds <= SUMMER_RANGE.end; }
-function isWeekday(ds) { try { var p = ds.split("-"); var d = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])).getDay(); return d >= 1 && d <= 5; } catch (e) { return true; } }
-// 😴 お休み設定（子どもごと）: data.restDays[chId][YYYY-MM-DD] = true。旅行など事前に学習できない日を休みにでき、その日はタスクを出さず翌日以降に自動で回す。
-function isRestDay(data, chId, ds) { return !!(data && data.restDays && data.restDays[chId] && data.restDays[chId][ds]); }
 // ═══ EISHI WORKBOOKS PRESET ═══
 var EISHI_WBS = [
   { id: "wb_chal_koku", name: "チャレンジ国語", subject: "国語", type: "challenge", totalUnits: 5, doneUnits: 2, hasTest: true, testDone: false, minPerUnit: 15, priority: "high", monthly: true },
@@ -128,6 +121,7 @@ export default function App() {
         if (!p.weekPlan) p.weekPlan = {}; // 2026-06-06 週プール // 2026-05-24 漢字練習履歴
         if (!p.weekStats) p.weekStats = {}; // 2026-06-06 週ごとの達成スナップショット
         if (!p.kanjiPending) p.kanjiPending = {}; // 2026-06-06 来週以降の漢字練習予約
+        if (!p.kanjiTestFrozen) p.kanjiTestFrozen = {}; // 2026-06-06 漢字テスト固定出題
         if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
         if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
         return p;
@@ -337,6 +331,25 @@ function kanjiDailyQueue(list, seedStr) {
   var arr = pool.slice();
   for (var j = arr.length - 1; j > 0; j--) { var r = Math.floor(rand() * (j + 1)); var tmp = arr[j]; arr[j] = arr[r]; arr[r] = tmp; }
   return arr.slice(0, 10);
+}
+function freezeKanjiQ(d, chId, date) {
+  if (!d.kanjiTestFrozen) d.kanjiTestFrozen = {};
+  if (!d.kanjiTestFrozen[chId]) d.kanjiTestFrozen[chId] = {};
+  if (!d.kanjiTestFrozen[chId][date] || !d.kanjiTestFrozen[chId][date].length) {
+    var q = kanjiDailyQueue((d.kanjiList && d.kanjiList[chId]) || [], date);
+    d.kanjiTestFrozen[chId][date] = q.map(function (k) { return k.id; });
+  }
+  return d.kanjiTestFrozen[chId][date];
+}
+function readKanjiQ(data, chId, date) {
+  var list = (data.kanjiList && data.kanjiList[chId]) || [];
+  var ids = (data.kanjiTestFrozen && data.kanjiTestFrozen[chId] && data.kanjiTestFrozen[chId][date]) || null;
+  if (ids && ids.length) {
+    var byId = {};
+    list.forEach(function (k) { byId[k.id] = k; });
+    return ids.map(function (id) { return byId[id]; }).filter(function (k) { return k; });
+  }
+  return kanjiDailyQueue(list, date);
 }
 // ===== 2026-06-06 ふりがな（学年別漢字表示）機能 =====
 // 学年別漢字配当表（教育漢字 小1-6、出典: みんなの知識 ちょっと便利帳 / 学習指導要領 学年別漢字配当表）。
@@ -556,7 +569,6 @@ function WeekPlanCard(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   const [showAhead, setShowAhead] = useState(false);
   const [showDone, setShowDone] = useState(false);
-  const [showWeekAll, setShowWeekAll] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addWbId, setAddWbId] = useState("");
   const [addLabel, setAddLabel] = useState("");
@@ -585,14 +597,8 @@ function WeekPlanCard(p) {
   var doneMin = info.reduce(function (s, x) { return s + (x.doneDate ? (x.t.estMin || 0) : 0); }, 0);
   var pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
   // 残りを残り日数で均等割り。day<=今日（今日指定・繰越・手動追加）は必ず今日に入れ、足りない分だけ先の日から補う。
-  // 😴 お休みの平日は「学習できる日」から除外して、旅行日ぶんを他の平日に自動で寄せる。
-  var restSet = (data.restDays && data.restDays[ch.id]) || {};
-  var weekDates = weekDatesOf(weekKey);
-  var todayRest = !!restSet[TD];
   var isWeekend = todayIdx >= 5;
-  var studyWeekdaysLeft = 0;
-  for (var _wd = todayIdx; _wd <= 4; _wd++) { if (!restSet[weekDates[_wd]]) studyWeekdaysLeft++; }
-  var weekdaysLeft = todayIdx <= 4 ? studyWeekdaysLeft : 0;
+  var weekdaysLeft = todayIdx <= 4 ? (5 - todayIdx) : 0;
   var daysLeft = Math.max(1, weekdaysLeft);
   var undone = info.filter(function (x) { return !x.doneDate; });
   var doneTodayCount = info.filter(function (x) { return x.doneDate === TD; }).length;
@@ -601,9 +607,9 @@ function WeekPlanCard(p) {
   var dueToday = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) <= todayIdx; });
   var future = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) > todayIdx; });
   var extra = Math.max(0, stillNeed - dueToday.length);
-  // 土日は積み残しをすべて今日のやることに（新規割り当てはしない）。お休みの日はタスクを出さない。
-  var todayList = todayRest ? [] : (isWeekend ? undone.slice() : dueToday.concat(future.slice(0, extra)));
-  var laterList = todayRest ? undone.slice() : (isWeekend ? [] : future.slice(extra));
+  // 土日は積み残しをすべて今日のやることに（新規割り当てはしない）
+  var todayList = isWeekend ? undone.slice() : dueToday.concat(future.slice(0, extra));
+  var laterList = isWeekend ? [] : future.slice(extra);
   var bonusGot = !!(data.weekBonus && data.weekBonus[ch.id] && data.weekBonus[ch.id][weekKey]);
   var advice = null, adviceBg = "#FFFDE7", adviceColor = "#8a6d00";
   if (totalCount > 0) {
@@ -656,12 +662,7 @@ function WeekPlanCard(p) {
   };
   var removeTask = function (taskId) {
     var d = clone(data);
-    var removed = null;
-    if (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) {
-      removed = d.weekPlan[ch.id].tasks.find(function (t) { return t.id === taskId; });
-      d.weekPlan[ch.id].tasks = d.weekPlan[ch.id].tasks.filter(function (t) { return t.id !== taskId; });
-    }
-    if (removed && removed.wbId && _isPageAction(removed.action)) reseqPages(d, removed.wbId, "this");
+    if (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) d.weekPlan[ch.id].tasks = d.weekPlan[ch.id].tasks.filter(function (t) { return t.id !== taskId; });
     save(d);
   };
   var regenWeek = function () {
@@ -670,64 +671,6 @@ function WeekPlanCard(p) {
     if (!d.weekPlan) d.weekPlan = {};
     d.weekPlan[ch.id] = { weekKey: weekKey, tasks: weekPoolGen(ch, data) };
     save(d);
-  };
-  // 手動追加時の開始ページ算出：対象日までに予定済み（未完）のページ分を積算し、前日と同じページになる重複を防ぐ（2026-07-19）
-  var _isPageAction = function (a) { return a === "pages" || a === "pit_pages"; };
-  var effDoneForAdd = function (wb, scope, targetDay) {
-    var doneP = wb.donePages || 0;
-    var addP = 0;
-    // 今週プランの未完ページタスク（完了分は donePages に反映済みなので除外）
-    info.forEach(function (x) {
-      var t = x.t;
-      if (t.wbId !== wb.id || !_isPageAction(t.action) || !t.pages || x.doneDate) return;
-      if (scope === "this") { if ((t.day == null ? 0 : t.day) <= targetDay) addP += t.pages; }
-      else { addP += t.pages; } // 来週追加のときは、今週の未完はすべて先に消費される
-    });
-    // 来週プランのページタスク（来週内での対象日まで）
-    if (scope === "next" && nextTasks) {
-      nextTasks.forEach(function (t) {
-        if (t.wbId !== wb.id || !_isPageAction(t.action) || !t.pages) return;
-        if ((t.day == null ? 0 : t.day) <= targetDay) addP += t.pages;
-      });
-    }
-    return doneP + addP;
-  };
-  var pageLabelFrom = function (effDone, numPages, wb) {
-    var start = effDone + 1;
-    var end = Math.min(start + numPages - 1, wb.totalPages);
-    if (start > wb.totalPages) return "完了";
-    if (start === end) return "P" + start;
-    return "P" + start + "-P" + end;
-  };
-  // 追加・削除のあと、その問題集の未完ページタスクを曜日順に一括で採番し直す。
-  // これで「後ろの日の自動タスクと同じページになる」重複を防ぐ（2026-07-20）。
-  var reseqPages = function (d, wbId, scope) {
-    var wb = ((d.workbooks && d.workbooks[ch.id]) || []).find(function (w) { return w.id === wbId; });
-    if (!wb || wb.type === "challenge") return;
-    var doneOf = function (t) { return !!weekTaskDoneDate(data, ch.id, weekKey, t.id); };
-    var thisArr = (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) || [];
-    var base = wb.donePages || 0;
-    if (scope === "next") {
-      // 来週は「今週の未完ぶんをすべて消化した後」から続ける
-      thisArr.forEach(function (t) { if (t.wbId === wbId && _isPageAction(t.action) && t.pages && !doneOf(t)) base += t.pages; });
-    }
-    var arr = scope === "next"
-      ? ((d.weekPlanNext && d.weekPlanNext[ch.id] && d.weekPlanNext[ch.id].tasks) || [])
-      : thisArr;
-    var idxOf = {}; arr.forEach(function (t, i) { idxOf[t.id] = i; });
-    var pts = arr.filter(function (t) {
-      return t.wbId === wbId && _isPageAction(t.action) && t.pages && (scope === "next" || !doneOf(t));
-    }).sort(function (a, b) {
-      var da = (a.day == null ? 0 : a.day), db = (b.day == null ? 0 : b.day);
-      return da !== db ? da - db : idxOf[a.id] - idxOf[b.id];
-    });
-    var cursor = base;
-    pts.forEach(function (t) {
-      var start = cursor + 1;
-      var end = Math.min(start + (t.pages || 0) - 1, wb.totalPages);
-      t.label = wb.name + " " + (start > wb.totalPages ? "完了" : (start === end ? "P" + start : "P" + start + "-P" + end));
-      cursor += (t.pages || 0);
-    });
   };
   var addTask = function () {
     var d = clone(data);
@@ -743,15 +686,13 @@ function WeekPlanCard(p) {
         else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
         else return;
       } else {
-        var _eff = effDoneForAdd(wb, "this", addDayIdx);
-        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabelFrom(_eff, 2, wb), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: addDayIdx };
+        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: addDayIdx };
       }
     } else {
       if (!addLabel.trim()) return;
       t = { id: ch.id + "_wa" + Date.now(), label: addLabel.trim(), subject: "", action: "free", estMin: estMin, day: addDayIdx };
     }
     d.weekPlan[ch.id].tasks.push(t);
-    if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, "this");
     save(d);
     setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin("");
   };
@@ -828,21 +769,19 @@ function WeekPlanCard(p) {
         else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
         else return;
       } else {
-        var _effN = effDoneForAdd(wb, "next", naddDay);
-        t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + pageLabelFrom(_effN, 2, wb), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: 2 * (wb.minPerPage || 3), day: naddDay };
+        t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: 2 * (wb.minPerPage || 3), day: naddDay };
       }
     } else {
       if (!naddLabel.trim()) return;
       t = { id: ch.id + "_nx" + Date.now(), label: naddLabel.trim(), subject: "", action: "free", estMin: 10, day: naddDay };
     }
     d.weekPlanNext[ch.id].tasks.push(t);
-    if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, "next");
     save(d);
     setNaddLabel(""); setNaddWbId("");
   };
   var doneList = info.filter(function (x) { return x.doneDate; });
   // 漢字テスト（毎日の習慣。週カードの「今日のやること」に統合表示）
-  var kanjiActive = kanjiDailyQueue((data.kanjiList && data.kanjiList[ch.id]) || [], TD);
+  var kanjiActive = readKanjiQ(data, ch.id, TD);
   var kanjiDue = kanjiActive.length > 0;
   var kanjiDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   var rkq = function (item) {
@@ -886,33 +825,6 @@ function WeekPlanCard(p) {
         <div style={{ ...S.cardTitle, margin: 0 }}><Kid t={"📅 今週のタスク"} ch={ch} data={data} on={!isP} /></div>
         <div style={{ fontSize: 11, color: "#999" }}>{dayNames[todayIdx]}よう日</div>
       </div>
-      {/* ☀️ 夏休みモードの目安バナー（叡志・優珠綺／平日のみ） 2026-07-19 */}
-      {(function () {
-        var sm = SUMMER_TARGET[ch.id];
-        if (!sm || !isSummerDay(TD) || !isWeekday(TD) || todayRest) return null;
-        var todaySec = ((data.studyLogs && data.studyLogs[ch.id]) || []).filter(function (l) { return l.date === TD; }).reduce(function (s, l) { return s + (l.seconds || 0); }, 0);
-        var todayMin = Math.floor(todaySec / 60);
-        var pctT = sm.total > 0 ? Math.min(100, Math.round(todayMin / sm.total * 100)) : 0;
-        var reached = todayMin >= sm.total;
-        return (
-          <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 12, background: "linear-gradient(135deg,#FFF3E0,#FFFDE7)", border: "1.5px solid #FFCC80" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: "#EF6C00" }}><Kid t={"☀️ なつやすみモード"} ch={ch} data={data} on={!isP} /></span>
-              <span style={{ fontSize: 10, color: "#B0855B" }}>〜8/25</span>
-            </div>
-            <div style={{ fontSize: 11, color: "#8D6E63", marginBottom: 6 }}>
-              <Kid t={"きょうの目安 " + sm.total + "分（午前" + sm.am + "分＋午後" + sm.pm + "分）"} ch={ch} data={data} on={!isP} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
-              <span style={{ color: "#666", fontWeight: 700 }}><Kid t={"きょうの学習 " + todayMin + "分 / " + sm.total + "分"} ch={ch} data={data} on={!isP} /></span>
-              <span style={{ color: reached ? "#4CAF50" : "#F57F17", fontWeight: 700 }}>{reached ? <Kid t={"🎉 たっせい！"} ch={ch} data={data} on={!isP} /> : pctT + "%"}</span>
-            </div>
-            <div style={{ height: 6, background: "#FFE0B2", borderRadius: 3, overflow: "hidden" }}>
-              <div style={{ height: "100%", borderRadius: 3, background: reached ? "#4CAF50" : "#FF9800", width: pctT + "%", transition: "width .4s" }} />
-            </div>
-          </div>
-        );
-      })()}
       {totalCount === 0 ? (
         <div style={{ textAlign: "center", padding: 14, color: "#bbb", fontSize: 12 }}>
           <Kid t={"今週のタスクを準備します…"} ch={ch} data={data} on={!isP} />
@@ -933,10 +845,10 @@ function WeekPlanCard(p) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f3f3f3" }}>
                 <span style={{ fontSize: 16 }}>🎯</span>
                 <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}><Kid t={"漢字テスト（" + kanjiActive.length + "問）"} ch={ch} data={data} on={!isP} /></div>
-                <button onClick={function () { setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}><Kid t={"問題を見る ▶"} ch={ch} data={data} on={!isP} /></button>
+                <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, TD); save(d); setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}><Kid t={"問題を見る ▶"} ch={ch} data={data} on={!isP} /></button>
               </div>
             )}
-            {kanjiDue && !kanjiDone && kanjiTestIdx >= 0 && (
+            {kanjiDue && kanjiTestIdx >= 0 && (
               <div style={{ background: "#F8F9FF", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <div style={{ fontSize: 11, color: "#aaa", fontWeight: 600 }}>{kanjiTestIdx + 1} / {kanjiActive.length} <Kid t={"問目"} ch={ch} data={data} on={!isP} /></div>
@@ -950,15 +862,16 @@ function WeekPlanCard(p) {
                   <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}><Kid t={"← 前の問題"} ch={ch} data={data} on={!isP} /></button>
                   {kanjiTestIdx < kanjiActive.length - 1
                     ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}><Kid t={"次の問題 →"} ch={ch} data={data} on={!isP} /></button>
-                    : <button onClick={finishKanji} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>}
+                    : (kanjiDone ? <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ とじる"} ch={ch} data={data} on={!isP} /></button> : <button onClick={finishKanji} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>)}
                 </div>
-                {kanjiTestIdx === kanjiActive.length - 1 && <div style={{ textAlign: "center", fontSize: 11, color: "#888", marginTop: 6 }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>}
+                {kanjiTestIdx === kanjiActive.length - 1 && !kanjiDone && <div style={{ textAlign: "center", fontSize: 11, color: "#888", marginTop: 6 }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>}
               </div>
             )}
-            {kanjiDone && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", opacity: .55 }}>
+            {kanjiDone && kanjiTestIdx < 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
                 <div style={{ width: 24, height: 24, borderRadius: 12, background: "#4CAF50", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✓</div>
-                <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through" }}><Kid t={"漢字テスト"} ch={ch} data={data} on={!isP} /></div>
+                <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through", opacity: .6 }}><Kid t={"漢字テスト"} ch={ch} data={data} on={!isP} /></div>
+                <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, TD); save(d); setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", fontSize: 11 }}><Kid t={"問題をもう一度見る"} ch={ch} data={data} on={!isP} /></button>
               </div>
             )}
             {todayList.map(rowU)}
@@ -984,40 +897,6 @@ function WeekPlanCard(p) {
               })}
             </div>
           )}
-          {/* 📋 今週ぜんぶ（曜日べつ）— 手動で確認・編集用 2026-07-19 */}
-          <div style={{ marginTop: 10 }}>
-            <button onClick={function () { setShowWeekAll(!showWeekAll); }} style={{ ...S.smBtn, background: showWeekAll ? ch.color : "#EEF3FF", color: showWeekAll ? "#fff" : "#3F5DA0", width: "100%" }}>{showWeekAll ? "▲ 今週ぜんぶをとじる" : "📋 今週ぜんぶを見る（曜日べつ）"}</button>
-            {showWeekAll && (
-              <div style={{ marginTop: 6, padding: 8, background: "#F7F9FC", borderRadius: 8 }}>
-                {[0, 1, 2, 3, 4, 5, 6].map(function (di) {
-                  var dts = info.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) === di; });
-                  var restD = !!restSet[weekDates[di]];
-                  if (dts.length === 0 && !restD) return null;
-                  var isTd = di === todayIdx;
-                  return (
-                    <div key={di} style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 10, fontWeight: 800, color: isTd ? ch.color : "#888", marginBottom: 3 }}>
-                        {dayNames[di]}よう日{isTd ? "（今日）" : ""}{restD ? " 😴おやすみ" : ""}
-                      </div>
-                      {dts.length === 0 && <div style={{ fontSize: 11, color: "#ccc", paddingLeft: 4 }}>―</div>}
-                      {dts.map(function (x) {
-                        var t = x.t; var done = !!x.doneDate;
-                        return (
-                          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12, opacity: done ? 0.5 : 1 }}>
-                            <span>{done ? "✓" : emojiOf(t.action)}</span>
-                            <span style={{ flex: 1, textDecoration: done ? "line-through" : "none" }}><Kid t={t.label} ch={ch} data={data} on={!isP} /></span>
-                            {t.estMin ? <span style={{ fontSize: 10, color: "#bbb" }}>{t.estMin}分</span> : null}
-                            {isP && !done && <button onClick={function () { removeTask(t.id); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#ccc" }}>🗑</button>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-                {isP && <div style={{ fontSize: 10, color: "#999", marginTop: 4, lineHeight: 1.5 }}>タスクの追加は下の「＋ タスク」から曜日を選んでできます。</div>}
-              </div>
-            )}
-          </div>
           {isP && (
             <div style={{ marginTop: 10, borderTop: "1px dashed #eee", paddingTop: 8 }}>
               {nextOpen ? (
@@ -1139,15 +1018,6 @@ function HomeTab(p) {
   var todayStudySec = logs.reduce(function (s, l) { return s + l.seconds; }, 0);
   var studyMin = Math.floor(todayStudySec / 60);
   var timeLimit = ch.id === "eishi" ? 50 : 0; // 50min limit for eishi
-  // 😴 お休み判定・切替（今日）
-  var todayRest = isRestDay(data, ch.id, TD);
-  var setTodayRest = function (on) {
-    var d = clone(data);
-    if (!d.restDays) d.restDays = {};
-    if (!d.restDays[ch.id]) d.restDays[ch.id] = {};
-    if (on) d.restDays[ch.id][TD] = true; else delete d.restDays[ch.id][TD];
-    save(d);
-  };
   // Build today's plan from workbooks
   var plan = isM ? buildTodayPlan(ch, data) : [];
   var donePlanCount = plan.filter(function (t) { return t.done; }).length;
@@ -1371,27 +1241,12 @@ function HomeTab(p) {
           </div>
         )}
       </div>
-      {/* 😴 お休みの日はタスクを出さず、おやすみカードを表示 */}
-      {todayRest && (
-        <div style={{ ...S.card, textAlign: "center", padding: 24, background: "linear-gradient(135deg,#EDE7F6,#E3F2FD)", border: "1.5px solid #B39DDB" }}>
-          <div style={{ fontSize: 40 }}>😴</div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: "#5E35B1", marginTop: 4 }}><Kid t={"きょうはおやすみ"} ch={ch} data={data} on={!isP} /></div>
-          <div style={{ fontSize: 12, color: "#7E57C2", marginTop: 6, lineHeight: 1.6 }}><Kid t={"きょうの学習はおやすみです。できなかったぶんは、また今度わけてやります。"} ch={ch} data={data} on={!isP} /></div>
-          {isP && <button onClick={function () { setTodayRest(false); }} style={{ ...S.smBtn, background: "#7E57C2", color: "#fff", marginTop: 14 }}>おやすみを解除する</button>}
-        </div>
-      )}
-      {!todayRest && (ch.id === "eishi" || ch.id === "yuzuki") && (
+      {(ch.id === "eishi" || ch.id === "yuzuki") && (
         <WeekPlanCard ch={ch} data={data} save={save} isP={isP} />
       )}
       {/* TODAY'S PLAN — the main feature */}
-      {!todayRest && isM && plan.length > 0 && (
+      {isM && plan.length > 0 && (
         <TodayPlanCard ch={ch} data={data} save={save} isP={isP} plan={plan} pendingPlan={pendingPlan} donePlan={donePlan} totalRemain={totalRemain} timeLimit={timeLimit} studyMin={studyMin} checkPlanItem={checkPlanItem} />
-      )}
-      {/* 親用: 今日をお休みにする */}
-      {!todayRest && isP && (
-        <button onClick={function () { setTodayRest(true); }} style={{ width: "100%", padding: 10, borderRadius: 10, border: "1.5px dashed #B39DDB", background: "#F7F5FC", color: "#7E57C2", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginBottom: 10 }}>
-          😴 今日はおやすみにする（旅行・予定など）
-        </button>
       )}
       {/* Manual tasks for today (all modes) */}
       {ch.mode === "self" && manualToday.length > 0 && (
@@ -2750,15 +2605,6 @@ function ReviewTab(p) {
   var logs = (data.studyLogs && data.studyLogs[ch.id]) || [];
   var checks = (data.todayChecks && data.todayChecks[ch.id]) || {};
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
-  var restSet = (data.restDays && data.restDays[ch.id]) || {};
-  // 😴 指定日のお休みを切替（旅行など事前設定に使う）
-  var toggleRestOn = function (ds) {
-    var d = clone(data);
-    if (!d.restDays) d.restDays = {};
-    if (!d.restDays[ch.id]) d.restDays[ch.id] = {};
-    if (d.restDays[ch.id][ds]) delete d.restDays[ch.id][ds]; else d.restDays[ch.id][ds] = true;
-    save(d);
-  };
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDay, setSelectedDay] = useState(null); // date string or null
   const [editLogId, setEditLogId] = useState(null);
@@ -3129,13 +2975,10 @@ function ReviewTab(p) {
             var isToday = md.date === TD;
             var isSel = md.date === selectedDay;
             var hasAct = md.count > 0 || md.sec > 0;
-            var isRest = !!restSet[md.date];
             return (
-              <div key={md.date} onClick={function () { setSelectedDay(isSel ? null : md.date); setEditLogId(null); }} style={{ textAlign: "center", padding: 3, borderRadius: 6, background: isSel ? ch.color + "25" : isRest ? "#EDE7F6" : isToday ? ch.color + "18" : hasAct ? "#E8F5E9" : "transparent", border: isSel ? "2px solid " + ch.color : isRest ? "2px solid #B39DDB" : isToday ? "2px solid " + ch.color + "60" : "2px solid transparent", minHeight: 36, cursor: "pointer" }}>
-                <div style={{ fontSize: 11, fontWeight: isSel || isToday ? 800 : 400, color: isSel ? ch.color : isRest ? "#7E57C2" : isToday ? ch.color : "#555" }}>{md.day}</div>
-                {isRest ? (
-                  <div style={{ fontSize: 11, marginTop: 1 }}>😴</div>
-                ) : hasAct && (
+              <div key={md.date} onClick={function () { setSelectedDay(isSel ? null : md.date); setEditLogId(null); }} style={{ textAlign: "center", padding: 3, borderRadius: 6, background: isSel ? ch.color + "25" : isToday ? ch.color + "18" : hasAct ? "#E8F5E9" : "transparent", border: isSel ? "2px solid " + ch.color : isToday ? "2px solid " + ch.color + "60" : "2px solid transparent", minHeight: 36, cursor: "pointer" }}>
+                <div style={{ fontSize: 11, fontWeight: isSel || isToday ? 800 : 400, color: isSel ? ch.color : isToday ? ch.color : "#555" }}>{md.day}</div>
+                {hasAct && (
                   <div style={{ marginTop: 1 }}>
                     {md.count > 0 && <div style={{ fontSize: 7, color: "#4CAF50", fontWeight: 700 }}>{md.count}個</div>}
                     {md.sec > 0 && <div style={{ fontSize: 7, color: "#2196F3" }}>{Math.floor(md.sec / 60)}分</div>}
@@ -3157,16 +3000,6 @@ function ReviewTab(p) {
             <MStat l="タスク" v={dayDetail.doneCount + "個"} c="#4CAF50" />
             <MStat l="学習時間" v={Math.floor(dayDetail.totalSec / 60) + "分"} c="#2196F3" />
           </div>
-          {/* 😴 お休み設定（旅行など事前に休みにできる） */}
-          {isP && (function () {
-            var selRest = !!restSet[selectedDay];
-            return (
-              <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 8, background: selRest ? "#EDE7F6" : "#FAFAFA", border: "1px solid " + (selRest ? "#B39DDB" : "#eee"), display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: selRest ? "#7E57C2" : "#888" }}>{selRest ? "😴 この日はおやすみ" : "この日をおやすみにできます"}</span>
-                <button onClick={function () { toggleRestOn(selectedDay); }} style={{ ...S.smBtn, background: selRest ? "#eee" : "#7E57C2", color: selRest ? "#666" : "#fff" }}>{selRest ? "解除する" : "😴 おやすみにする"}</button>
-              </div>
-            );
-          })()}
           {dayDetail.logs.length === 0 && <div style={{ fontSize: 12, color: "#ccc", textAlign: "center", padding: 10 }}>この日の記録はありません</div>}
           {dayDetail.logs.map(function (l) {
             var isEditing = editLogId === l.id;
@@ -3599,37 +3432,6 @@ function TestsTab(p) {
   // Group by type for chart
   var byType = {};
   testTypes.forEach(function (t) { byType[t] = sorted.filter(function (r) { return r.type === t; }).reverse(); });
-  // ─── 推移・頑張り分析用データ（2026-07-11 追加）───
-  var logs = (data.studyLogs && data.studyLogs[ch.id]) || [];
-  var checks = (data.todayChecks && data.todayChecks[ch.id]) || {};
-  function fmtD(dt) { return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"); }
-  function avgOf(rec) {
-    if (typeof rec.avg === "number") return rec.avg;
-    var ks = Object.keys(rec.scores || {}); if (ks.length === 0) return 0;
-    var t = 0, c = 0; ks.forEach(function (k) { if (typeof rec.scores[k] === "number") { t += rec.scores[k]; c++; } });
-    return c ? Math.round(t / c * 10) / 10 : 0;
-  }
-  function effLabel(sec) { var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60); return h > 0 ? h + "時間" + (m > 0 ? m + "分" : "") : m + "分"; }
-  // 時系列（古い順）
-  var chrono = records.slice().sort(function (a, b) { return a.date > b.date ? 1 : a.date < b.date ? -1 : 0; });
-  // 各テストの「前回テスト〜今回」の学習量（学習時間・タスク数）
-  var effortByRec = {};
-  chrono.forEach(function (rec, i) {
-    var end = rec.date;
-    var start;
-    if (i > 0) { start = chrono[i - 1].date; }
-    else { var sd = new Date(rec.date); sd.setDate(sd.getDate() - 30); start = fmtD(sd); }
-    var sec = 0, tasks = 0, actDays = {};
-    logs.forEach(function (l) { if (l.date && l.date > start && l.date <= end) { sec += l.seconds || 0; actDays[l.date] = 1; } });
-    Object.keys(checks).forEach(function (ds) {
-      if (ds > start && ds <= end) {
-        var dc = checks[ds] || {};
-        var cnt = Object.keys(dc).filter(function (k) { return k !== "_plan" && k !== "kanji_graded" && k.indexOf("time_") !== 0 && dc[k] === true; }).length;
-        if (cnt > 0) { tasks += cnt; actDays[ds] = 1; }
-      }
-    });
-    effortByRec[rec.id] = { sec: sec, tasks: tasks, start: start, end: end, first: i === 0, days: Object.keys(actDays).length };
-  });
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       {/* Header */}
@@ -3744,156 +3546,34 @@ function TestsTab(p) {
           </div>
         </div>
       )}
-      {/* 平均点の推移（折れ線・前回比） 2026-07-11 */}
+      {/* Score trend per type */}
       {testTypes.map(function (type) {
-        var typeRecs = byType[type] || []; // 古い順
+        var typeRecs = byType[type] || [];
         if (typeRecs.length === 0) return null;
-        var n = typeRecs.length;
-        var W = Math.max(300, n * 70), H = 168, padT = 24, padB = 52, padL = 18, padR = 14;
-        var plotH = H - padT - padB, plotW = W - padL - padR;
-        var xAt = function (i) { return n === 1 ? padL + plotW / 2 : padL + plotW * i / (n - 1); };
-        var yAt = function (v) { return padT + plotH * (1 - Math.max(0, Math.min(100, v)) / 100); };
-        var pts = typeRecs.map(function (rec, i) { return { x: xAt(i), y: yAt(avgOf(rec)), rec: rec, i: i }; });
-        var linePath = pts.map(function (pt, i) { return (i === 0 ? "M" : "L") + pt.x.toFixed(1) + " " + pt.y.toFixed(1); }).join(" ");
-        var selRec = null;
-        if (detail) { selRec = typeRecs.find(function (r) { return r.id === detail; }) || null; }
-        if (!selRec) selRec = typeRecs[typeRecs.length - 1];
-        var selEff = selRec ? effortByRec[selRec.id] : null;
         return (
           <div key={type} style={S.card}>
-            <div style={S.cardTitle}>📈 {type}の平均点の推移</div>
-            <div style={{ fontSize: 10, color: "#bbb", marginTop: -6, marginBottom: 6 }}>点をタップすると、その回までの頑張りが下に出ます</div>
+            <div style={S.cardTitle}>📈 {type}の推移</div>
             <div style={{ overflowX: "auto" }}>
-              <svg width={W} height={H} style={{ display: "block" }}>
-                {[0, 50, 100].map(function (g) {
-                  var y = yAt(g);
-                  return <g key={g}><line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#eee" strokeWidth="1" /><text x={2} y={y + 3} fontSize="8" fill="#ccc">{g}</text></g>;
-                })}
-                <path d={linePath} fill="none" stroke={ch.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-                {pts.map(function (pt) {
-                  var rec = pt.rec;
-                  var prev = pt.i > 0 ? typeRecs[pt.i - 1] : null;
-                  var delta = prev ? Math.round((avgOf(rec) - avgOf(prev)) * 10) / 10 : null;
-                  var isSel = selRec && selRec.id === rec.id;
-                  var dt = new Date(rec.date);
-                  var dstr = (dt.getMonth() + 1) + "/" + dt.getDate();
+              <div style={{ display: "flex", gap: 0, minWidth: typeRecs.length * 70 }}>
+                {typeRecs.map(function (rec) {
+                  var maxScore = testSubjects.length * 100;
+                  var barH = maxScore > 0 ? Math.round((rec.total / maxScore) * 100) : 0;
                   return (
-                    <g key={rec.id} onClick={function () { setDetail(detail === rec.id ? null : rec.id); }} style={{ cursor: "pointer" }}>
-                      {isSel && <circle cx={pt.x} cy={pt.y} r="9" fill={ch.color} opacity="0.15" />}
-                      <circle cx={pt.x} cy={pt.y} r={isSel ? 5.5 : 4} fill={ch.color} stroke="#fff" strokeWidth="2" />
-                      <text x={pt.x} y={pt.y - 9} fontSize="11" fontWeight="800" fill={ch.color} textAnchor="middle">{avgOf(rec)}</text>
-                      <text x={pt.x} y={H - 34} fontSize="8" fill="#999" textAnchor="middle">{rec.name.length > 5 ? rec.name.slice(0, 5) : rec.name}</text>
-                      <text x={pt.x} y={H - 24} fontSize="8" fill="#ccc" textAnchor="middle">{dstr}</text>
-                      {delta !== null && <text x={pt.x} y={H - 11} fontSize="9" fontWeight="700" fill={delta > 0 ? "#4CAF50" : delta < 0 ? "#E53935" : "#999"} textAnchor="middle">{delta > 0 ? "▲" + delta : delta < 0 ? "▼" + Math.abs(delta) : "±0"}</text>}
-                    </g>
+                    <div key={rec.id} onClick={function () { setDetail(detail === rec.id ? null : rec.id); }} style={{ flex: 1, minWidth: 60, textAlign: "center", cursor: "pointer", padding: "0 2px" }}>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: ch.color }}>{rec.total}</div>
+                      <div style={{ height: 60, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                        <div style={{ width: 28, height: Math.max(4, barH * 0.6), background: "linear-gradient(180deg," + ch.color + "," + ch.color + "88)", borderRadius: "4px 4px 0 0" }} />
+                      </div>
+                      <div style={{ fontSize: 8, color: "#999", marginTop: 3 }}>{rec.name}</div>
+                      <div style={{ fontSize: 8, color: "#bbb" }}>{dl(rec.date)}</div>
+                    </div>
                   );
                 })}
-              </svg>
-            </div>
-            {/* 頑張りひも付け（選択中の回） */}
-            {selRec && selEff && (
-              <div style={{ marginTop: 4, padding: "10px 12px", borderRadius: 10, background: ch.colorLight }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: ch.color, marginBottom: 6 }}>
-                  💪 「{selRec.name}」までの頑張り
-                  <span style={{ fontSize: 9, color: "#999", fontWeight: 600, marginLeft: 6 }}>
-                    {selEff.first ? "（テスト前30日間）" : "（前回テスト〜今回）"}
-                  </span>
-                </div>
-                <div style={{ display: "flex", gap: 10, justifyContent: "space-around" }}>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 900, color: "#2196F3" }}>{effLabel(selEff.sec)}</div><div style={{ fontSize: 9, color: "#999" }}>学習時間</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 900, color: "#4CAF50" }}>{selEff.tasks}個</div><div style={{ fontSize: 9, color: "#999" }}>タスク完了</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 900, color: "#FF9800" }}>{selEff.days}日</div><div style={{ fontSize: 9, color: "#999" }}>学習した日</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 900, color: ch.color }}>{avgOf(selRec)}点</div><div style={{ fontSize: 9, color: "#999" }}>平均点</div></div>
-                </div>
               </div>
-            )}
+            </div>
           </div>
         );
       })}
-      {/* 教科べつの推移 2026-07-11 */}
-      {chrono.length >= 2 && testSubjects.length > 0 && (function () {
-        var rows = testSubjects.map(function (subj) {
-          var series = chrono.filter(function (r) { return r.scores && typeof r.scores[subj] === "number"; }).map(function (r) { return { v: r.scores[subj], date: r.date }; });
-          return { subj: subj, series: series };
-        }).filter(function (r) { return r.series.length > 0; });
-        if (rows.length === 0) return null;
-        return (
-          <div style={S.card}>
-            <div style={S.cardTitle}>📊 教科べつの推移</div>
-            {rows.map(function (r) {
-              var series = r.series;
-              var latest = series[series.length - 1].v;
-              var delta = series.length > 1 ? latest - series[series.length - 2].v : null;
-              var sn = series.length, sw = Math.max(70, sn * 20), sh = 30, sp = 4;
-              var sx = function (i) { return sn === 1 ? sw / 2 : sp + (sw - 2 * sp) * i / (sn - 1); };
-              var sy = function (v) { return sp + (sh - 2 * sp) * (1 - Math.max(0, Math.min(100, v)) / 100); };
-              var path = series.map(function (s, i) { return (i === 0 ? "M" : "L") + sx(i).toFixed(1) + " " + sy(s.v).toFixed(1); }).join(" ");
-              var lineColor = latest >= 80 ? "#4CAF50" : latest >= 60 ? "#FF9800" : "#E53935";
-              return (
-                <div key={r.subj} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid #f5f5f5" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#555", width: 40, flexShrink: 0 }}>{r.subj}</div>
-                  <svg width={sw} height={sh} style={{ flexShrink: 0 }}>
-                    <path d={path} fill="none" stroke={ch.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" opacity="0.55" />
-                    {series.map(function (s, i) { return <circle key={i} cx={sx(i)} cy={sy(s.v)} r={i === sn - 1 ? 3 : 2} fill={i === sn - 1 ? lineColor : ch.color} />; })}
-                  </svg>
-                  <div style={{ marginLeft: "auto", textAlign: "right", flexShrink: 0 }}>
-                    <span style={{ fontSize: 16, fontWeight: 900, color: lineColor }}>{latest}</span>
-                    {delta !== null && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 5, color: delta > 0 ? "#4CAF50" : delta < 0 ? "#E53935" : "#999" }}>{delta > 0 ? "▲" + delta : delta < 0 ? "▼" + Math.abs(delta) : "±0"}</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
-      {/* 学習量と点数の関係 2026-07-11 */}
-      {(function () {
-        var cp = chrono.map(function (r) { var e = effortByRec[r.id]; return { x: e.sec / 3600, y: avgOf(r), rec: r }; });
-        if (cp.length < 3) {
-          if (records.length === 0) return null;
-          return (
-            <div style={S.card}>
-              <div style={S.cardTitle}>🔗 学習量と点数の関係</div>
-              <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: "10px 0", lineHeight: 1.7 }}>テストの記録が3回以上たまると、<br />「勉強した時間」と「点数」の関係が見えてきます。</div>
-            </div>
-          );
-        }
-        var mx = cp.reduce(function (s, p) { return s + p.x; }, 0) / cp.length;
-        var my = cp.reduce(function (s, p) { return s + p.y; }, 0) / cp.length;
-        var sxy = 0, sxx = 0, syy = 0;
-        cp.forEach(function (p) { sxy += (p.x - mx) * (p.y - my); sxx += (p.x - mx) * (p.x - mx); syy += (p.y - my) * (p.y - my); });
-        var r = (sxx > 0 && syy > 0) ? sxy / Math.sqrt(sxx * syy) : 0;
-        var maxX = Math.max.apply(null, cp.map(function (p) { return p.x; }).concat([1]));
-        var W = 320, H = 190, padT = 14, padB = 34, padL = 30, padR = 14;
-        var plotH = H - padT - padB, plotW = W - padL - padR;
-        var px = function (x) { return padL + plotW * (maxX > 0 ? x / maxX : 0); };
-        var py = function (y) { return padT + plotH * (1 - Math.max(0, Math.min(100, y)) / 100); };
-        var comment, cColor;
-        if (r >= 0.3) { comment = "📈 よく勉強した回ほど、点数が高い傾向が出ています。頑張りが結果につながっています。"; cColor = "#4CAF50"; }
-        else if (r <= -0.3) { comment = "🤔 勉強時間と点数が逆になっています。テスト範囲の難しさや、勉強のやり方を見直すヒントかもしれません。"; cColor = "#FF9800"; }
-        else { comment = "➖ 今のところ、勉強時間と点数のはっきりした関係は見えていません。"; cColor = "#999"; }
-        return (
-          <div style={S.card}>
-            <div style={S.cardTitle}>🔗 学習量と点数の関係</div>
-            <div style={{ overflowX: "auto" }}>
-              <svg width={W} height={H} style={{ display: "block", margin: "0 auto" }}>
-                {[0, 50, 100].map(function (g) { var y = py(g); return <g key={g}><line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#eee" strokeWidth="1" /><text x={2} y={y + 3} fontSize="8" fill="#ccc">{g}</text></g>; })}
-                {r >= 0.3 || r <= -0.3 ? (function () {
-                  var b = sxx > 0 ? sxy / sxx : 0; var a = my - b * mx;
-                  var x1 = 0, x2 = maxX;
-                  return <line x1={px(x1)} y1={py(a + b * x1)} x2={px(x2)} y2={py(a + b * x2)} stroke={cColor} strokeWidth="2" strokeDasharray="5 4" opacity="0.6" />;
-                })() : null}
-                {cp.map(function (p, i) { return <circle key={i} cx={px(p.x)} cy={py(p.y)} r="5" fill={ch.color} opacity="0.75" stroke="#fff" strokeWidth="1.5" />; })}
-                <text x={padL + plotW / 2} y={H - 4} fontSize="9" fill="#999" textAnchor="middle">学習時間（時間）→</text>
-                <text x={px(0)} y={H - 20} fontSize="8" fill="#bbb" textAnchor="middle">0</text>
-                <text x={px(maxX)} y={H - 20} fontSize="8" fill="#bbb" textAnchor="middle">{Math.round(maxX)}h</text>
-              </svg>
-            </div>
-            <div style={{ fontSize: 8, color: "#ccc", textAlign: "right", marginTop: -4 }}>たてじく＝平均点 / よこじく＝そのテストまでの学習時間</div>
-            <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 10, background: cColor + "15", fontSize: 12, color: "#555", lineHeight: 1.7 }}>{comment}</div>
-          </div>
-        );
-      })()}
       {/* Record list */}
       {sorted.length > 0 && (
         <div style={S.card}>
@@ -3928,14 +3608,6 @@ function TestsTab(p) {
                         );
                       })}
                     </div>
-                    {effortByRec[rec.id] && (
-                      <div style={{ display: "flex", gap: 8, justifyContent: "center", padding: "8px 0", marginBottom: 6, borderTop: "1px solid #f5f5f5", fontSize: 11, color: "#888" }}>
-                        <span>💪 この回まで:</span>
-                        <span style={{ color: "#2196F3", fontWeight: 700 }}>{effLabel(effortByRec[rec.id].sec)}</span>
-                        <span style={{ color: "#4CAF50", fontWeight: 700 }}>{effortByRec[rec.id].tasks}タスク</span>
-                        <span style={{ color: "#FF9800", fontWeight: 700 }}>{effortByRec[rec.id].days}日</span>
-                      </div>
-                    )}
                     {isP && (
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                         <button onClick={function () { startEdit(rec); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666" }}>✏️ 編集</button>
@@ -3998,7 +3670,10 @@ function KanjiTab(p) {
 
   // テスト開始：読みが設定されている語のみ対象
   var startTest = function () {
-    var queue = kanjiDailyQueue(allKanji, gradeDate);
+    var dd = clone(data);
+    freezeKanjiQ(dd, ch.id, gradeDate);
+    save(dd);
+    var queue = readKanjiQ(dd, ch.id, gradeDate);
     if (queue.length === 0) return;
     setTestState({ queue: queue, idx: 0, results: {}, date: gradeDate });
   };
