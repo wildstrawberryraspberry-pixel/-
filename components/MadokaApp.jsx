@@ -122,6 +122,7 @@ export default function App() {
         if (!p.weekStats) p.weekStats = {}; // 2026-06-06 週ごとの達成スナップショット
         if (!p.kanjiPending) p.kanjiPending = {}; // 2026-06-06 来週以降の漢字練習予約
         if (!p.kanjiTestFrozen) p.kanjiTestFrozen = {}; // 2026-06-06 漢字テスト固定出題
+        if (!p.kanjiTestResults) p.kanjiTestResults = {}; // 2026-06-06 漢字テスト採点結果
         if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
         if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
         return p;
@@ -575,6 +576,7 @@ function WeekPlanCard(p) {
   const [addMin, setAddMin] = useState("");
   const [addDayIdx, setAddDayIdx] = useState(0);
   const [kanjiTestIdx, setKanjiTestIdx] = useState(-1);
+  const [kanjiResultOpen, setKanjiResultOpen] = useState(false);
   const [kanjiAddOpen, setKanjiAddOpen] = useState(false);
   const [kanjiInput, setKanjiInput] = useState("");
   const [kanjiAddOff, setKanjiAddOff] = useState(0);
@@ -784,6 +786,8 @@ function WeekPlanCard(p) {
   var kanjiActive = readKanjiQ(data, ch.id, TD);
   var kanjiDue = kanjiActive.length > 0;
   var kanjiDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
+  var kanjiGraded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_graded"]);
+  var kanjiResults = (data.kanjiTestResults && data.kanjiTestResults[ch.id] && data.kanjiTestResults[ch.id][TD]) || null;
   var rkq = function (item) {
     var reading = (item.reading || "").trim();
     var sentence = (item.sentence || "").trim();
@@ -868,10 +872,37 @@ function WeekPlanCard(p) {
               </div>
             )}
             {kanjiDone && kanjiTestIdx < 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-                <div style={{ width: 24, height: 24, borderRadius: 12, background: "#4CAF50", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✓</div>
-                <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through", opacity: .6 }}><Kid t={"漢字テスト"} ch={ch} data={data} on={!isP} /></div>
-                <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, TD); save(d); setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", fontSize: 11 }}><Kid t={"問題をもう一度見る"} ch={ch} data={data} on={!isP} /></button>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0", flexWrap: "wrap" }}>
+                  <div style={{ width: 24, height: 24, borderRadius: 12, background: "#4CAF50", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✓</div>
+                  <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through", opacity: .6, minWidth: 70 }}><Kid t={"漢字テスト"} ch={ch} data={data} on={!isP} /></div>
+                  {kanjiGraded && kanjiResults && <span style={{ fontSize: 11, fontWeight: 800, color: "#4CAF50" }}>○{readKanjiQ(data, ch.id, TD).filter(function (k) { return kanjiResults[k.id]; }).length}/{readKanjiQ(data, ch.id, TD).length}</span>}
+                  <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, TD); save(d); setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", fontSize: 11 }}><Kid t={"問題をもう一度見る"} ch={ch} data={data} on={!isP} /></button>
+                  {kanjiGraded && kanjiResults && <button onClick={function () { setKanjiResultOpen(!kanjiResultOpen); }} style={{ ...S.smBtn, background: kanjiResultOpen ? ch.color : "#E8F5E9", color: kanjiResultOpen ? "#fff" : "#2E7D32", fontSize: 11 }}><Kid t={"📊 採点結果"} ch={ch} data={data} on={!isP} /></button>}
+                  {kanjiDone && !kanjiGraded && <span style={{ fontSize: 10, color: "#FF9800", fontWeight: 700 }}><Kid t={"採点まち"} ch={ch} data={data} on={!isP} /></span>}
+                </div>
+                {kanjiGraded && kanjiResults && kanjiResultOpen && (
+                  <div style={{ background: "#F8FBF8", borderRadius: 12, padding: 10, marginTop: 2, marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}><Kid t={"漢字テストの採点結果"} ch={ch} data={data} on={!isP} /></div>
+                    {readKanjiQ(data, ch.id, TD).map(function (k, i) {
+                      var correct = kanjiResults[k.id];
+                      return (
+                        <div key={k.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 8, background: correct ? "#E8F5E9" : "#FFEBEE", marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: "#999", fontWeight: 700, minWidth: 18 }}>{circledNum(i)}</span>
+                          <span style={{ fontSize: 18 }}>{correct ? "○" : "×"}</span>
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontSize: 15, fontWeight: 900 }}>{k.kanji}</span>
+                            {k.reading && <span style={{ fontSize: 11, color: "#888", marginLeft: 6 }}>{k.reading}</span>}
+                          </div>
+                          <div style={{ display: "flex", gap: 3 }}>
+                            {[0, 1].map(function (di) { return <div key={di} style={{ width: 8, height: 8, borderRadius: 4, background: di < (k.correctStreak || 0) ? "#4CAF50" : "#e0e0e0" }} />; })}
+                          </div>
+                          {k.completed && <span style={{ fontSize: 10, color: "#4CAF50", fontWeight: 700 }}>✅</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
             {todayList.map(rowU)}
@@ -3714,6 +3745,10 @@ function KanjiTab(p) {
     d.todayChecks[ch.id][gd]["kanji_test"] = true;
     d.todayChecks[ch.id][gd]["kanji_graded"] = true;
     d.todayChecks[ch.id][gd]["label_kanji_test"] = "漢字テスト（" + ts.queue.length + "問）";
+    if (!d.kanjiTestResults) d.kanjiTestResults = {};
+    if (!d.kanjiTestResults[ch.id]) d.kanjiTestResults[ch.id] = {};
+    d.kanjiTestResults[ch.id][gd] = {};
+    ts.queue.forEach(function (q) { d.kanjiTestResults[ch.id][gd][q.id] = !!newResults[q.id]; });
     ensurePts(d, ch.id);
     var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
     d.points[ch.id].balance += ptAmt;
