@@ -566,6 +566,8 @@ function weekPoolGen(ch, data, preTasks) {
   }
   return tasks;
 }
+// 😴 お休み設定（子どもごと）: data.restDays[chId][YYYY-MM-DD] = true。旅行など事前に学習できない日を休みにでき、その日はタスクを出さず翌日以降に自動で回す。
+function isRestDay(data, chId, ds) { return !!(data && data.restDays && data.restDays[chId] && data.restDays[chId][ds]); }
 function WeekPlanCard(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   const [showAhead, setShowAhead] = useState(false);
@@ -605,8 +607,14 @@ function WeekPlanCard(p) {
   var doneMin = info.reduce(function (s, x) { return s + (x.doneDate ? (x.t.estMin || 0) : 0); }, 0);
   var pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
   // 残りを残り日数で均等割り。day<=今日（今日指定・繰越・手動追加）は必ず今日に入れ、足りない分だけ先の日から補う。
+  // 😴 お休みの平日は「学習できる日」から除外して、旅行日ぶんを他の平日に自動で寄せる。
+  var restSet = (data.restDays && data.restDays[ch.id]) || {};
+  var weekDates = weekDatesOf(weekKey);
+  var todayRest = !!restSet[TD];
   var isWeekend = todayIdx >= 5;
-  var weekdaysLeft = todayIdx <= 4 ? (5 - todayIdx) : 0;
+  var studyWeekdaysLeft = 0;
+  for (var _wd = todayIdx; _wd <= 4; _wd++) { if (!restSet[weekDates[_wd]]) studyWeekdaysLeft++; }
+  var weekdaysLeft = todayIdx <= 4 ? studyWeekdaysLeft : 0;
   var daysLeft = Math.max(1, weekdaysLeft);
   var undone = info.filter(function (x) { return !x.doneDate; });
   var doneTodayCount = info.filter(function (x) { return x.doneDate === TD; }).length;
@@ -615,9 +623,9 @@ function WeekPlanCard(p) {
   var dueToday = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) <= todayIdx; });
   var future = undone.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) > todayIdx; });
   var extra = Math.max(0, stillNeed - dueToday.length);
-  // 土日は積み残しをすべて今日のやることに（新規割り当てはしない）
-  var todayList = isWeekend ? undone.slice() : dueToday.concat(future.slice(0, extra));
-  var laterList = isWeekend ? [] : future.slice(extra);
+  // 土日は積み残しをすべて今日のやることに（新規割り当てはしない）。お休みの日はタスクを出さない。
+  var todayList = todayRest ? [] : (isWeekend ? undone.slice() : dueToday.concat(future.slice(0, extra)));
+  var laterList = todayRest ? undone.slice() : (isWeekend ? [] : future.slice(extra));
   var bonusGot = !!(data.weekBonus && data.weekBonus[ch.id] && data.weekBonus[ch.id][weekKey]);
   var advice = null, adviceBg = "#FFFDE7", adviceColor = "#8a6d00";
   if (totalCount > 0) {
@@ -670,7 +678,12 @@ function WeekPlanCard(p) {
   };
   var removeTask = function (taskId) {
     var d = clone(data);
-    if (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) d.weekPlan[ch.id].tasks = d.weekPlan[ch.id].tasks.filter(function (t) { return t.id !== taskId; });
+    var removed = null;
+    if (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) {
+      removed = d.weekPlan[ch.id].tasks.find(function (t) { return t.id === taskId; });
+      d.weekPlan[ch.id].tasks = d.weekPlan[ch.id].tasks.filter(function (t) { return t.id !== taskId; });
+    }
+    if (removed && removed.wbId && _isPageAction(removed.action)) reseqPages(d, removed.wbId, "this");
     save(d);
   };
   var regenWeek = function () {
@@ -679,6 +692,60 @@ function WeekPlanCard(p) {
     if (!d.weekPlan) d.weekPlan = {};
     d.weekPlan[ch.id] = { weekKey: weekKey, tasks: weekPoolGen(ch, data) };
     save(d);
+  };
+  // 手動追加時の開始ページ算出：対象日までに予定済み（未完）のページ分を積算し、前日と同じページになる重複を防ぐ（2026-07-19）
+  var _isPageAction = function (a) { return a === "pages" || a === "pit_pages"; };
+  var effDoneForAdd = function (wb, scope, targetDay) {
+    var doneP = wb.donePages || 0;
+    var addP = 0;
+    info.forEach(function (x) {
+      var t = x.t;
+      if (t.wbId !== wb.id || !_isPageAction(t.action) || !t.pages || x.doneDate) return;
+      if (scope === "this") { if ((t.day == null ? 0 : t.day) <= targetDay) addP += t.pages; }
+      else { addP += t.pages; }
+    });
+    if (scope === "next" && nextTasks) {
+      nextTasks.forEach(function (t) {
+        if (t.wbId !== wb.id || !_isPageAction(t.action) || !t.pages) return;
+        if ((t.day == null ? 0 : t.day) <= targetDay) addP += t.pages;
+      });
+    }
+    return doneP + addP;
+  };
+  var pageLabelFrom = function (effDone, numPages, wb) {
+    var start = effDone + 1;
+    var end = Math.min(start + numPages - 1, wb.totalPages);
+    if (start > wb.totalPages) return "完了";
+    if (start === end) return "P" + start;
+    return "P" + start + "-P" + end;
+  };
+  // 追加・削除・曜日変更のあと、その問題集の未完ページタスクを曜日順に一括で採番し直す（重複防止 2026-07-20）
+  var reseqPages = function (d, wbId, scope) {
+    var wb = ((d.workbooks && d.workbooks[ch.id]) || []).find(function (w) { return w.id === wbId; });
+    if (!wb || wb.type === "challenge") return;
+    var doneOf = function (t) { return !!weekTaskDoneDate(data, ch.id, weekKey, t.id); };
+    var thisArr = (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks) || [];
+    var base = wb.donePages || 0;
+    if (scope === "next") {
+      thisArr.forEach(function (t) { if (t.wbId === wbId && _isPageAction(t.action) && t.pages && !doneOf(t)) base += t.pages; });
+    }
+    var arr = scope === "next"
+      ? ((d.weekPlanNext && d.weekPlanNext[ch.id] && d.weekPlanNext[ch.id].tasks) || [])
+      : thisArr;
+    var idxOf = {}; arr.forEach(function (t, i) { idxOf[t.id] = i; });
+    var pts = arr.filter(function (t) {
+      return t.wbId === wbId && _isPageAction(t.action) && t.pages && (scope === "next" || !doneOf(t));
+    }).sort(function (a, b) {
+      var da = (a.day == null ? 0 : a.day), db = (b.day == null ? 0 : b.day);
+      return da !== db ? da - db : idxOf[a.id] - idxOf[b.id];
+    });
+    var cursor = base;
+    pts.forEach(function (t) {
+      var start = cursor + 1;
+      var end = Math.min(start + (t.pages || 0) - 1, wb.totalPages);
+      t.label = wb.name + " " + (start > wb.totalPages ? "完了" : (start === end ? "P" + start : "P" + start + "-P" + end));
+      cursor += (t.pages || 0);
+    });
   };
   var addTask = function () {
     var d = clone(data);
@@ -694,13 +761,15 @@ function WeekPlanCard(p) {
         else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
         else return;
       } else {
-        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: addDayIdx };
+        var _eff = effDoneForAdd(wb, "this", addDayIdx);
+        t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + pageLabelFrom(_eff, 2, wb), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: estMin, day: addDayIdx };
       }
     } else {
       if (!addLabel.trim()) return;
       t = { id: ch.id + "_wa" + Date.now(), label: addLabel.trim(), subject: "", action: "free", estMin: estMin, day: addDayIdx };
     }
     d.weekPlan[ch.id].tasks.push(t);
+    if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, "this");
     save(d);
     setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin("");
   };
@@ -777,13 +846,15 @@ function WeekPlanCard(p) {
         else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
         else return;
       } else {
-        t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + pageLabel(wb, 2), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: 2 * (wb.minPerPage || 3), day: naddDay };
+        var _effN = effDoneForAdd(wb, "next", naddDay);
+        t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + pageLabelFrom(_effN, 2, wb), subject: wb.subject, action: (wb.dailyPages ? "pages" : "pit_pages"), wbId: wb.id, pages: 2, estMin: 2 * (wb.minPerPage || 3), day: naddDay };
       }
     } else {
       if (!naddLabel.trim()) return;
       t = { id: ch.id + "_nx" + Date.now(), label: naddLabel.trim(), subject: "", action: "free", estMin: 10, day: naddDay };
     }
     d.weekPlanNext[ch.id].tasks.push(t);
+    if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, "next");
     save(d);
     setNaddLabel(""); setNaddWbId("");
   };
@@ -813,6 +884,7 @@ function WeekPlanCard(p) {
     var m = parseInt(editMin);
     if (!isNaN(m) && m >= 0) t.estMin = m;
     t.day = Math.max(0, Math.min(6, parseInt(editDay) || 0));
+    if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, editScope === "next" ? "next" : "this");
     save(d);
     setEditId("");
   };
@@ -830,7 +902,7 @@ function WeekPlanCard(p) {
         </div>
         <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>タスク名</div>
         <input value={editLabel} onChange={function (e) { setEditLabel(e.target.value); }} style={{ ...S.input, marginBottom: 4 }} />
-        {_isWb && <div style={{ fontSize: 10, color: "#B08900", marginBottom: 6, lineHeight: 1.5 }}>※問題集のタスクは、ページや回の番号は自動では変わりません。必要なら名前も直してください。</div>}
+        {_isWb && <div style={{ fontSize: 10, color: "#B08900", marginBottom: 6, lineHeight: 1.5 }}>※問題集のタスクは、曜日を変えるとページ番号が自動で付け直されます。</div>}
         <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
           <span style={{ fontSize: 11, color: "#666" }}>目安</span>
           <input type="number" value={editMin} onChange={function (e) { setEditMin(e.target.value); }} placeholder="10" style={{ ...S.input, width: 50, textAlign: "center" }} /><span style={{ fontSize: 11, color: "#999" }}>分</span>
@@ -989,11 +1061,12 @@ function WeekPlanCard(p) {
               <div style={{ marginTop: 6, padding: 8, background: "#F7F9FC", borderRadius: 8 }}>
                 {[0, 1, 2, 3, 4, 5, 6].map(function (di) {
                   var dts = info.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) === di; });
-                  if (dts.length === 0) return null;
+                  var restD = !!restSet[weekDates[di]];
+                  if (dts.length === 0 && !restD) return null;
                   var isTd = di === todayIdx;
                   return (
                     <div key={di} style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 10, fontWeight: 800, color: isTd ? ch.color : "#888", marginBottom: 3 }}>{dayNames[di]}よう日{isTd ? "（今日）" : ""}</div>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: isTd ? ch.color : "#888", marginBottom: 3 }}>{dayNames[di]}よう日{isTd ? "（今日）" : ""}{restD ? " 😴おやすみ" : ""}</div>
                       {dts.map(function (x) {
                         var t = x.t; var done = !!x.doneDate;
                         return (
@@ -1138,6 +1211,14 @@ function HomeTab(p) {
   var studyMin = Math.floor(todayStudySec / 60);
   var timeLimit = ch.id === "eishi" ? 50 : 0; // 50min limit for eishi
   // Build today's plan from workbooks
+  var todayRest = isRestDay(data, ch.id, TD);
+  var setTodayRest = function (on) {
+    var d = clone(data);
+    if (!d.restDays) d.restDays = {};
+    if (!d.restDays[ch.id]) d.restDays[ch.id] = {};
+    if (on) d.restDays[ch.id][TD] = true; else delete d.restDays[ch.id][TD];
+    save(d);
+  };
   var plan = isM ? buildTodayPlan(ch, data) : [];
   var donePlanCount = plan.filter(function (t) { return t.done; }).length;
   var pendingPlan = plan.filter(function (t) { return !t.done; });
@@ -1360,12 +1441,27 @@ function HomeTab(p) {
           </div>
         )}
       </div>
-      {(ch.id === "eishi" || ch.id === "yuzuki") && (
+      {/* 😴 お休みの日はタスクを出さず、おやすみカードを表示 */}
+      {todayRest && (
+        <div style={{ ...S.card, textAlign: "center", padding: 24, background: "linear-gradient(135deg,#EDE7F6,#E3F2FD)", border: "1.5px solid #B39DDB" }}>
+          <div style={{ fontSize: 40 }}>😴</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "#5E35B1", marginTop: 4 }}><Kid t={"きょうはおやすみ"} ch={ch} data={data} on={!isP} /></div>
+          <div style={{ fontSize: 12, color: "#7E57C2", marginTop: 6, lineHeight: 1.6 }}><Kid t={"きょうの学習はおやすみです。できなかったぶんは、また今度わけてやります。"} ch={ch} data={data} on={!isP} /></div>
+          {isP && <button onClick={function () { setTodayRest(false); }} style={{ ...S.smBtn, background: "#7E57C2", color: "#fff", marginTop: 14 }}>おやすみを解除する</button>}
+        </div>
+      )}
+      {!todayRest && (ch.id === "eishi" || ch.id === "yuzuki") && (
         <WeekPlanCard ch={ch} data={data} save={save} isP={isP} />
       )}
       {/* TODAY'S PLAN — the main feature */}
-      {isM && plan.length > 0 && (
+      {!todayRest && isM && plan.length > 0 && (
         <TodayPlanCard ch={ch} data={data} save={save} isP={isP} plan={plan} pendingPlan={pendingPlan} donePlan={donePlan} totalRemain={totalRemain} timeLimit={timeLimit} studyMin={studyMin} checkPlanItem={checkPlanItem} />
+      )}
+      {/* 親用: 今日をお休みにする */}
+      {!todayRest && isP && (
+        <button onClick={function () { setTodayRest(true); }} style={{ width: "100%", padding: 10, borderRadius: 10, border: "1.5px dashed #B39DDB", background: "#F7F5FC", color: "#7E57C2", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginBottom: 10 }}>
+          😴 今日はおやすみにする（旅行・予定など）
+        </button>
       )}
       {/* Manual tasks for today (all modes) */}
       {ch.mode === "self" && manualToday.length > 0 && (
