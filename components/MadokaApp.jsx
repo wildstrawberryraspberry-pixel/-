@@ -584,6 +584,12 @@ function WeekPlanCard(p) {
   const [naddWbId, setNaddWbId] = useState("");
   const [naddLabel, setNaddLabel] = useState("");
   const [naddDay, setNaddDay] = useState(0);
+  const [showWeekAll, setShowWeekAll] = useState(false);
+  const [editId, setEditId] = useState("");
+  const [editScope, setEditScope] = useState("this");
+  const [editLabel, setEditLabel] = useState("");
+  const [editMin, setEditMin] = useState("");
+  const [editDay, setEditDay] = useState(0);
   var weekKey = weekStartKey(TD);
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var wp = (data.weekPlan && data.weekPlan[ch.id]) || null;
@@ -788,6 +794,54 @@ function WeekPlanCard(p) {
   var kanjiDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   var kanjiGraded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_graded"]);
   var kanjiResults = (data.kanjiTestResults && data.kanjiTestResults[ch.id] && data.kanjiTestResults[ch.id][TD]) || null;
+  // 週プールのタスクを曜日べつに編集（名前・目安時間・曜日の変更）。今週・来週の両方で使う（2026-08-17）
+  var startEdit = function (t, scope) {
+    setEditId(t.id); setEditScope(scope);
+    setEditLabel(t.label || ""); setEditMin(t.estMin != null ? String(t.estMin) : "");
+    setEditDay(t.day == null ? 0 : t.day);
+  };
+  var cancelEdit = function () { setEditId(""); };
+  var saveEdit = function () {
+    var d = clone(data);
+    var arr = editScope === "next"
+      ? (d.weekPlanNext && d.weekPlanNext[ch.id] && d.weekPlanNext[ch.id].tasks)
+      : (d.weekPlan && d.weekPlan[ch.id] && d.weekPlan[ch.id].tasks);
+    if (!arr) { setEditId(""); return; }
+    var t = arr.find(function (x) { return x.id === editId; });
+    if (!t) { setEditId(""); return; }
+    if (editLabel.trim()) t.label = editLabel.trim();
+    var m = parseInt(editMin);
+    if (!isNaN(m) && m >= 0) t.estMin = m;
+    t.day = Math.max(0, Math.min(6, parseInt(editDay) || 0));
+    save(d);
+    setEditId("");
+  };
+  var editorUI = function () {
+    var _arr0 = editScope === "next" ? (nextTasks || []) : tasks;
+    var _et = _arr0.find(function (x) { return x.id === editId; });
+    var _isWb = !!(_et && _et.wbId);
+    return (
+      <div style={{ padding: 8, margin: "2px 0 6px", background: "#FFFDE7", border: "1px solid #FFE082", borderRadius: 8 }}>
+        <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>よう日を変える</div>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+          {[0, 1, 2, 3, 4, 5, 6].map(function (di) {
+            return <button key={di} onClick={function () { setEditDay(di); }} style={{ ...S.smBtn, background: editDay === di ? ch.color : "#f0f0f0", color: editDay === di ? "#fff" : "#666", fontSize: 11, minWidth: 30, padding: "5px 7px" }}>{dayNames[di]}</button>;
+          })}
+        </div>
+        <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>タスク名</div>
+        <input value={editLabel} onChange={function (e) { setEditLabel(e.target.value); }} style={{ ...S.input, marginBottom: 4 }} />
+        {_isWb && <div style={{ fontSize: 10, color: "#B08900", marginBottom: 6, lineHeight: 1.5 }}>※問題集のタスクは、ページや回の番号は自動では変わりません。必要なら名前も直してください。</div>}
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontSize: 11, color: "#666" }}>目安</span>
+          <input type="number" value={editMin} onChange={function (e) { setEditMin(e.target.value); }} placeholder="10" style={{ ...S.input, width: 50, textAlign: "center" }} /><span style={{ fontSize: 11, color: "#999" }}>分</span>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={cancelEdit} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>✕</button>
+          <button onClick={saveEdit} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>保存</button>
+        </div>
+      </div>
+    );
+  };
   var rkq = function (item) {
     var reading = (item.reading || "").trim();
     var sentence = (item.sentence || "").trim();
@@ -928,6 +982,40 @@ function WeekPlanCard(p) {
               })}
             </div>
           )}
+          {/* 📋 今週ぜんぶ（曜日べつ）— お母さんが曜日ごとに確認・編集 2026-08-17 */}
+          <div style={{ marginTop: 10 }}>
+            <button onClick={function () { setShowWeekAll(!showWeekAll); }} style={{ ...S.smBtn, background: showWeekAll ? ch.color : "#EEF3FF", color: showWeekAll ? "#fff" : "#3F5DA0", width: "100%" }}>{showWeekAll ? "▲ 今週ぜんぶをとじる" : "📋 今週ぜんぶを見る（曜日べつ）"}</button>
+            {showWeekAll && (
+              <div style={{ marginTop: 6, padding: 8, background: "#F7F9FC", borderRadius: 8 }}>
+                {[0, 1, 2, 3, 4, 5, 6].map(function (di) {
+                  var dts = info.filter(function (x) { return (x.t.day == null ? 0 : x.t.day) === di; });
+                  if (dts.length === 0) return null;
+                  var isTd = di === todayIdx;
+                  return (
+                    <div key={di} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: isTd ? ch.color : "#888", marginBottom: 3 }}>{dayNames[di]}よう日{isTd ? "（今日）" : ""}</div>
+                      {dts.map(function (x) {
+                        var t = x.t; var done = !!x.doneDate;
+                        return (
+                          <div key={t.id}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12, opacity: done ? 0.5 : 1 }}>
+                              <span>{done ? "✓" : emojiOf(t.action)}</span>
+                              <span style={{ flex: 1, textDecoration: done ? "line-through" : "none" }}><Kid t={t.label} ch={ch} data={data} on={!isP} /></span>
+                              {t.estMin ? <span style={{ fontSize: 10, color: "#bbb" }}>{t.estMin}分</span> : null}
+                              {isP && !done && editId !== t.id && <button onClick={function () { startEdit(t, "this"); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#4A90D9" }}>✏️</button>}
+                              {isP && !done && <button onClick={function () { removeTask(t.id); }} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#ccc" }}>🗑</button>}
+                            </div>
+                            {isP && !done && editId === t.id && editScope === "this" && editorUI()}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                {isP && <div style={{ fontSize: 10, color: "#999", marginTop: 4, lineHeight: 1.5 }}>✏️で曜日・名前・目安時間をなおせます。タスクの追加は下の「＋ タスク」から。</div>}
+              </div>
+            )}
+          </div>
           {isP && (
             <div style={{ marginTop: 10, borderTop: "1px dashed #eee", paddingTop: 8 }}>
               {nextOpen ? (
@@ -951,7 +1039,7 @@ function WeekPlanCard(p) {
                           <div key={di} style={{ marginBottom: 6 }}>
                             <div style={{ fontSize: 10, fontWeight: 700, color: "#1565C0", marginBottom: 2 }}>{dayNames[di]}よう日</div>
                             {dayTasks.map(function (t) {
-                              return <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12 }}><span>{emojiOf(t.action)}</span><span style={{ flex: 1 }}>{t.label}</span><button onClick={function () { removeNextTask(t.id); }} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#ccc" }}>🗑</button></div>;
+                              return <div key={t.id}><div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12 }}><span>{emojiOf(t.action)}</span><span style={{ flex: 1 }}>{t.label}</span>{editId !== t.id && <button onClick={function () { startEdit(t, "next"); }} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#4A90D9" }}>✏️</button>}<button onClick={function () { removeNextTask(t.id); }} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#ccc" }}>🗑</button></div>{editId === t.id && editScope === "next" && editorUI()}</div>;
                             })}
                             {dayPend.map(function (p) {
                               return <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 12, color: "#9C27B0" }}><span>📌</span><span style={{ flex: 1 }}>{p.label}</span><button onClick={function () { removeNextPending(p.id); }} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#ccc" }}>🗑</button></div>;
