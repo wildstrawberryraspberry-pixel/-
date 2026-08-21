@@ -40,6 +40,10 @@ function getToday() {
 var NOW = new Date();
 var TD = getToday().td;
 var TDI = getToday().tdi;
+// 2026-08-21 チャレンジの「○月号」表示。issueMonth 未設定なら今月を既定にする。
+var CUR_MONTH = parseInt(String(TD).slice(5, 7), 10) || 1;
+function chalMonth(wb) { var m = parseInt(wb && wb.issueMonth, 10); return (m >= 1 && m <= 12) ? m : CUR_MONTH; }
+function chalTag(wb) { return chalMonth(wb) + "月号"; }
 // ═══ EISHI WORKBOOKS PRESET ═══
 var EISHI_WBS = [
   { id: "wb_chal_koku", name: "チャレンジ国語", subject: "国語", type: "challenge", totalUnits: 5, doneUnits: 2, hasTest: true, testDone: false, minPerUnit: 15, priority: "high", monthly: true },
@@ -431,10 +435,10 @@ function buildTodayPlan(ch, data) {
       if (tchal.length > 0) {
         var tpick = pickWithPriority(tchal, ch, "chal", dayOfYear, data);
         if (tpick.doneUnits < tpick.totalUnits) {
-          plan.push({ id: "today_chal_" + tpick.id, label: tpick.name + " 第" + (tpick.doneUnits + 1) + "回", subject: tpick.subject, time: "15分", wbId: tpick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + tpick.id] });
+          plan.push({ id: "today_chal_" + tpick.id, label: tpick.name + " " + chalTag(tpick) + " 第" + (tpick.doneUnits + 1) + "回", subject: tpick.subject, time: "15分", wbId: tpick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + tpick.id] });
           tc++;
         } else if (tpick.hasTest && !tpick.testDone) {
-          plan.push({ id: "today_chaltest_" + tpick.id, label: tpick.name + " テスト", subject: tpick.subject, time: "15分", wbId: tpick.id, action: "test", emoji: "📝", done: !!todayDone["chaltest_" + tpick.id] });
+          plan.push({ id: "today_chaltest_" + tpick.id, label: tpick.name + " " + chalTag(tpick) + " テスト", subject: tpick.subject, time: "15分", wbId: tpick.id, action: "test", emoji: "📝", done: !!todayDone["chaltest_" + tpick.id] });
           tc++;
         }
       }
@@ -467,10 +471,10 @@ function buildTodayPlan(ch, data) {
       if (ynchal.length > 0) {
         var ynpick = pickWithPriority(ynchal, ch, "chal", dayOfYear, data);
         if (ynpick.doneUnits < ynpick.totalUnits) {
-          plan.push({ id: "today_chal_" + ynpick.id, label: ynpick.name + " 第" + (ynpick.doneUnits + 1) + "回", subject: ynpick.subject, time: "15分", wbId: ynpick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + ynpick.id] });
+          plan.push({ id: "today_chal_" + ynpick.id, label: ynpick.name + " " + chalTag(ynpick) + " 第" + (ynpick.doneUnits + 1) + "回", subject: ynpick.subject, time: "15分", wbId: ynpick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + ynpick.id] });
           ync++;
         } else if (ynpick.hasTest && !ynpick.testDone) {
-          plan.push({ id: "today_chaltest_" + ynpick.id, label: ynpick.name + " テスト", subject: ynpick.subject, time: "15分", wbId: ynpick.id, action: "test", emoji: "📝", done: !!todayDone["chaltest_" + ynpick.id] });
+          plan.push({ id: "today_chaltest_" + ynpick.id, label: ynpick.name + " " + chalTag(ynpick) + " テスト", subject: ynpick.subject, time: "15分", wbId: ynpick.id, action: "test", emoji: "📝", done: !!todayDone["chaltest_" + ynpick.id] });
           ync++;
         }
       }
@@ -526,7 +530,7 @@ function nextWeekKeyOf(weekKey) {
 function weekPoolGen(ch, data, preTasks) {
   var src = (data.workbooks && data.workbooks[ch.id]) || [];
   var defMinUnit = ch.id === "yuzuki" ? 5 : 15;
-  var wbs = src.map(function (w) { return { id: w.id, name: w.name, type: w.type, subject: w.subject, doneUnits: w.doneUnits || 0, totalUnits: w.totalUnits || 0, hasTest: !!w.hasTest, testDone: !!w.testDone, donePages: w.donePages || 0, totalPages: w.totalPages || 0, dailyPages: w.dailyPages || 0, minPerPage: w.minPerPage || 3, minPerUnit: w.minPerUnit || defMinUnit }; });
+  var wbs = src.map(function (w) { return { id: w.id, name: w.name, type: w.type, subject: w.subject, doneUnits: w.doneUnits || 0, totalUnits: w.totalUnits || 0, hasTest: !!w.hasTest, testDone: !!w.testDone, donePages: w.donePages || 0, totalPages: w.totalPages || 0, dailyPages: w.dailyPages || 0, minPerPage: w.minPerPage || 3, minPerUnit: w.minPerUnit || defMinUnit, issueMonth: w.issueMonth }; });
   var challenges = wbs.filter(function (w) { return w.type === "challenge"; });
   var kanjiDrill = wbs.find(function (w) { return w.type === "pages" && w.dailyPages > 0; });
   var pitlist = wbs.filter(function (w) { return w.type === "pages" && !(w.dailyPages > 0); });
@@ -543,8 +547,8 @@ function weekPoolGen(ch, data, preTasks) {
   var tasks = []; var seq = 0;
   var nid = function () { return ch.id + "_wt" + (seq++); };
   var chalTask = function (w, day) {
-    if (w.doneUnits < w.totalUnits) { w.doneUnits++; return { id: nid(), label: w.name + " 第" + w.doneUnits + "回", subject: w.subject, action: "unit", wbId: w.id, estMin: w.minPerUnit, day: day }; }
-    if (w.hasTest && !w.testDone) { w.testDone = true; return { id: nid(), label: w.name + " テスト", subject: w.subject, action: "test", wbId: w.id, estMin: w.minPerUnit, day: day }; }
+    if (w.doneUnits < w.totalUnits) { w.doneUnits++; return { id: nid(), label: w.name + " " + chalTag(w) + " 第" + w.doneUnits + "回", subject: w.subject, action: "unit", wbId: w.id, estMin: w.minPerUnit, day: day }; }
+    if (w.hasTest && !w.testDone) { w.testDone = true; return { id: nid(), label: w.name + " " + chalTag(w) + " テスト", subject: w.subject, action: "test", wbId: w.id, estMin: w.minPerUnit, day: day }; }
     return null;
   };
   var pgTask = function (w, n, action, day) {
@@ -757,8 +761,8 @@ function WeekPlanCard(p) {
       var wb = wbs.find(function (w) { return w.id === addWbId; });
       if (!wb) return;
       if (wb.type === "challenge") {
-        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: estMin, day: addDayIdx };
-        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
+        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: estMin, day: addDayIdx };
+        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
         else return;
       } else {
         var _eff = effDoneForAdd(wb, "this", addDayIdx);
@@ -842,8 +846,8 @@ function WeekPlanCard(p) {
       var wb = wbs.find(function (w) { return w.id === naddWbId; });
       if (!wb) return;
       if (wb.type === "challenge") {
-        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
-        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
+        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + chalTag(wb) + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
+        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + chalTag(wb) + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
         else return;
       } else {
         var _effN = effDoneForAdd(wb, "next", naddDay);
@@ -861,7 +865,7 @@ function WeekPlanCard(p) {
   var doneList = info.filter(function (x) { return x.doneDate; });
   // 漢字テスト（毎日の習慣。週カードの「今日のやること」に統合表示）
   var kanjiActive = readKanjiQ(data, ch.id, TD);
-  var kanjiDue = kanjiActive.length > 0;
+  var kanjiDue = kanjiActive.length > 0 && !isWeekend; // 2026-08-21 土日は漢字テストを出さない
   var kanjiDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   var kanjiGraded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_graded"]);
   var kanjiResults = (data.kanjiTestResults && data.kanjiTestResults[ch.id] && data.kanjiTestResults[ch.id][TD]) || null;
@@ -1659,7 +1663,7 @@ function TodayPlanCard(p) {
           var nextUnit = (wb.doneUnits || 0) + 1;
           d.todayOverrides[ch.id][targetTD].added.push({
             id: "cust" + Date.now(),
-            label: wb.name + " 第" + nextUnit + "回",
+            label: wb.name + " " + chalTag(wb) + " 第" + nextUnit + "回",
             subject: wb.subject,
             time: (wb.minPerUnit || 15) + "分",
             wbId: wb.id,
@@ -1669,7 +1673,7 @@ function TodayPlanCard(p) {
         } else if (testLeft) {
           d.todayOverrides[ch.id][targetTD].added.push({
             id: "cust" + Date.now(),
-            label: wb.name + " テスト",
+            label: wb.name + " " + chalTag(wb) + " テスト",
             subject: wb.subject,
             time: (wb.minPerUnit || 15) + "分",
             wbId: wb.id,
@@ -2412,15 +2416,18 @@ function WorkbooksTab(p) {
   const [editUnitsId, setEditUnitsId] = useState(null);
   const [editUnitsVal, setEditUnitsVal] = useState("");
   const [editTestDoneVal, setEditTestDoneVal] = useState(false);
+  const [editMonthVal, setEditMonthVal] = useState(""); // 2026-08-21 チャレンジ月号の編集
   var startEditUnits = function (wb) {
     setEditUnitsId(wb.id);
     setEditUnitsVal(String(wb.doneUnits || 0));
     setEditTestDoneVal(!!wb.testDone);
+    setEditMonthVal(String(chalMonth(wb)));
   };
   var cancelEditUnits = function () {
     setEditUnitsId(null);
     setEditUnitsVal("");
     setEditTestDoneVal(false);
+    setEditMonthVal("");
   };
   var saveEditUnits = function (wbId) {
     var n = parseInt(editUnitsVal);
@@ -2431,6 +2438,7 @@ function WorkbooksTab(p) {
       var maxU = target.totalUnits || 0;
       target.doneUnits = Math.min(maxU, Math.max(0, n));
       if (target.hasTest) target.testDone = !!editTestDoneVal;
+      var _mm = parseInt(editMonthVal, 10); if (_mm >= 1 && _mm <= 12) target.issueMonth = _mm;
     }
     save(d);
     cancelEditUnits();
@@ -2493,7 +2501,7 @@ function WorkbooksTab(p) {
   var resetChallenge = function (wbId) {
     var d = clone(data);
     var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
-    if (target) { target.doneUnits = 0; target.testDone = false; }
+    if (target) { target.doneUnits = 0; target.testDone = false; var _m = parseInt(target.issueMonth, 10); if (!(_m >= 1 && _m <= 12)) _m = CUR_MONTH; target.issueMonth = (_m % 12) + 1; }
     save(d);
   };
   var addChallenge = function () {
@@ -2550,7 +2558,7 @@ function WorkbooksTab(p) {
             <div key={wb.id} style={{ padding: "10px 0", borderBottom: "1px solid #f3f3f3" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 13 }}>{wb.name || wb.subject}</div>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{wb.name || wb.subject} <span style={{ fontSize: 11, fontWeight: 700, color: ch.color }}>{chalTag(wb)}</span></div>
                   <div style={{ fontSize: 11, color: "#aaa" }}>{wb.subject}・第{done}回 / 全{total}回{wb.hasTest ? "＋テスト" : ""}</div>
                 </div>
                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -2572,6 +2580,7 @@ function WorkbooksTab(p) {
                       <button onClick={function () { setEditTestDoneVal(!editTestDoneVal); }} style={{ ...S.smBtn, background: editTestDoneVal ? "#4CAF50" : "#e0e0e0", color: editTestDoneVal ? "#fff" : "#999", fontSize: 11, minWidth: 56 }}>{editTestDoneVal ? "完了" : "未"}</button>
                     </span>
                   )}
+                  <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginLeft: 6 }}><span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号:</span><input type="number" value={editMonthVal} onChange={function (e) { setEditMonthVal(e.target.value); }} min="1" max="12" style={{ ...S.input, width: 48, textAlign: "center", padding: "4px 6px" }} /><span style={{ fontSize: 11, color: "#999" }}>月号</span></span>
                   <button onClick={function () { saveEditUnits(wb.id); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", fontSize: 11 }}>保存</button>
                   <button onClick={cancelEditUnits} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>×</button>
                 </div>
@@ -3017,8 +3026,8 @@ function ReviewTab(p) {
       if (wb.type === "challenge") {
         var unitsLeft = (wb.doneUnits || 0) < (wb.totalUnits || 0);
         var testLeft = !unitsLeft && wb.hasTest && !wb.testDone;
-        if (unitsLeft) { wbAction = "unit"; label = wb.name + " 第" + ((wb.doneUnits || 0) + 1) + "回"; ptAmt = _pc.chalUnit || 1; }
-        else if (testLeft) { wbAction = "test"; label = wb.name + " テスト"; ptAmt = _pc.chalTest || 2; }
+        if (unitsLeft) { wbAction = "unit"; label = wb.name + " " + chalTag(wb) + " 第" + ((wb.doneUnits || 0) + 1) + "回"; ptAmt = _pc.chalUnit || 1; }
+        else if (testLeft) { wbAction = "test"; label = wb.name + " " + chalTag(wb) + " テスト"; ptAmt = _pc.chalTest || 2; }
         else { return; }
       } else {
         wbAction = "pages"; pages = parseInt(addWbPages) || 2; label = wb.name + " " + pageLabel(wb, pages); ptAmt = _pc.pageDone || 1;
