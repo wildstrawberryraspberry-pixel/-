@@ -44,6 +44,12 @@ var TDI = getToday().tdi;
 var CUR_MONTH = parseInt(String(TD).slice(5, 7), 10) || 1;
 function chalMonth(wb) { var m = parseInt(wb && wb.issueMonth, 10); return (m >= 1 && m <= 12) ? m : CUR_MONTH; }
 function chalTag(wb) { return chalMonth(wb) + "月号"; }
+// 2026-08-22 チャレンジの「回ごと」完了管理（飛ばし対応）。doneNums=完了した回番号の配列。doneUnits は互換のため件数を同期。
+function chalDoneNums(wb) { if (wb && wb.doneNums && wb.doneNums.length !== undefined) return wb.doneNums; var a = []; var du = (wb && wb.doneUnits) || 0; for (var i = 1; i <= du; i++) a.push(i); return a; }
+function nextUnitNum(wb) { var s = chalDoneNums(wb); var tot = (wb && wb.totalUnits) || 0; for (var n = 1; n <= tot; n++) { if (s.indexOf(n) < 0) return n; } return 0; }
+function markUnitDone(wb, n) { n = parseInt(n, 10); if (!(n >= 1)) return; if (!wb.doneNums || wb.doneNums.length === undefined) wb.doneNums = chalDoneNums(wb).slice(); if (wb.doneNums.indexOf(n) < 0) wb.doneNums.push(n); wb.doneNums.sort(function (a, b) { return a - b; }); wb.doneUnits = wb.doneNums.length; }
+function unmarkUnitDone(wb, n) { if (!wb.doneNums || wb.doneNums.length === undefined) wb.doneNums = chalDoneNums(wb).slice(); n = parseInt(n, 10); if (n >= 1) { var i = wb.doneNums.indexOf(n); if (i >= 0) wb.doneNums.splice(i, 1); } else if (wb.doneNums.length) { wb.doneNums.pop(); } wb.doneUnits = wb.doneNums.length; }
+function skippedUnits(wb) { var s = chalDoneNums(wb); if (!s.length) return []; var mx = Math.max.apply(null, s); var out = []; for (var n = 1; n < mx; n++) { if (s.indexOf(n) < 0) out.push(n); } return out; }
 // ═══ EISHI WORKBOOKS PRESET ═══
 var EISHI_WBS = [
   { id: "wb_chal_koku", name: "チャレンジ国語", subject: "国語", type: "challenge", totalUnits: 5, doneUnits: 2, hasTest: true, testDone: false, minPerUnit: 15, priority: "high", monthly: true },
@@ -129,6 +135,8 @@ export default function App() {
         if (!p.kanjiTestResults) p.kanjiTestResults = {}; // 2026-06-06 漢字テスト採点結果
         if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
         if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
+        // 2026-08-22 チャレンジを回ごと管理へ移行：doneNums 未設定なら連番[1..doneUnits]で初期化
+        ["daigo", "eishi", "yuzuki", "yukino"].forEach(function (cid) { var arr = (p.workbooks && p.workbooks[cid]) || []; arr.forEach(function (w) { if (w && w.type === "challenge" && !(w.doneNums && w.doneNums.length !== undefined)) { var a = []; for (var i = 1; i <= (w.doneUnits || 0); i++) a.push(i); w.doneNums = a; } }); });
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -435,7 +443,7 @@ function buildTodayPlan(ch, data) {
       if (tchal.length > 0) {
         var tpick = pickWithPriority(tchal, ch, "chal", dayOfYear, data);
         if (tpick.doneUnits < tpick.totalUnits) {
-          plan.push({ id: "today_chal_" + tpick.id, label: tpick.name + " " + chalTag(tpick) + " 第" + (tpick.doneUnits + 1) + "回", subject: tpick.subject, time: "15分", wbId: tpick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + tpick.id] });
+          plan.push({ id: "today_chal_" + tpick.id, label: tpick.name + " " + chalTag(tpick) + " 第" + nextUnitNum(tpick) + "回", subject: tpick.subject, time: "15分", wbId: tpick.id, action: "unit", unitNo: nextUnitNum(tpick), emoji: "📕", done: !!todayDone["chal_" + tpick.id] });
           tc++;
         } else if (tpick.hasTest && !tpick.testDone) {
           plan.push({ id: "today_chaltest_" + tpick.id, label: tpick.name + " " + chalTag(tpick) + " テスト", subject: tpick.subject, time: "15分", wbId: tpick.id, action: "test", emoji: "📝", done: !!todayDone["chaltest_" + tpick.id] });
@@ -471,7 +479,7 @@ function buildTodayPlan(ch, data) {
       if (ynchal.length > 0) {
         var ynpick = pickWithPriority(ynchal, ch, "chal", dayOfYear, data);
         if (ynpick.doneUnits < ynpick.totalUnits) {
-          plan.push({ id: "today_chal_" + ynpick.id, label: ynpick.name + " " + chalTag(ynpick) + " 第" + (ynpick.doneUnits + 1) + "回", subject: ynpick.subject, time: "15分", wbId: ynpick.id, action: "unit", emoji: "📕", done: !!todayDone["chal_" + ynpick.id] });
+          plan.push({ id: "today_chal_" + ynpick.id, label: ynpick.name + " " + chalTag(ynpick) + " 第" + nextUnitNum(ynpick) + "回", subject: ynpick.subject, time: "15分", wbId: ynpick.id, action: "unit", unitNo: nextUnitNum(ynpick), emoji: "📕", done: !!todayDone["chal_" + ynpick.id] });
           ync++;
         } else if (ynpick.hasTest && !ynpick.testDone) {
           plan.push({ id: "today_chaltest_" + ynpick.id, label: ynpick.name + " " + chalTag(ynpick) + " テスト", subject: ynpick.subject, time: "15分", wbId: ynpick.id, action: "test", emoji: "📝", done: !!todayDone["chaltest_" + ynpick.id] });
@@ -530,7 +538,7 @@ function nextWeekKeyOf(weekKey) {
 function weekPoolGen(ch, data, preTasks) {
   var src = (data.workbooks && data.workbooks[ch.id]) || [];
   var defMinUnit = ch.id === "yuzuki" ? 5 : 15;
-  var wbs = src.map(function (w) { return { id: w.id, name: w.name, type: w.type, subject: w.subject, doneUnits: w.doneUnits || 0, totalUnits: w.totalUnits || 0, hasTest: !!w.hasTest, testDone: !!w.testDone, donePages: w.donePages || 0, totalPages: w.totalPages || 0, dailyPages: w.dailyPages || 0, minPerPage: w.minPerPage || 3, minPerUnit: w.minPerUnit || defMinUnit, issueMonth: w.issueMonth }; });
+  var wbs = src.map(function (w) { return { id: w.id, name: w.name, type: w.type, subject: w.subject, doneUnits: w.doneUnits || 0, totalUnits: w.totalUnits || 0, hasTest: !!w.hasTest, testDone: !!w.testDone, donePages: w.donePages || 0, totalPages: w.totalPages || 0, dailyPages: w.dailyPages || 0, minPerPage: w.minPerPage || 3, minPerUnit: w.minPerUnit || defMinUnit, issueMonth: w.issueMonth, doneNums: (w.doneNums && w.doneNums.slice()) || undefined }; });
   var challenges = wbs.filter(function (w) { return w.type === "challenge"; });
   var kanjiDrill = wbs.find(function (w) { return w.type === "pages" && w.dailyPages > 0; });
   var pitlist = wbs.filter(function (w) { return w.type === "pages" && !(w.dailyPages > 0); });
@@ -539,7 +547,7 @@ function weekPoolGen(ch, data, preTasks) {
       if (!pt.wbId) return;
       var pw = wbs.find(function (w) { return w.id === pt.wbId; });
       if (!pw) return;
-      if (pt.action === "unit") pw.doneUnits = Math.min(pw.totalUnits, pw.doneUnits + 1);
+      if (pt.action === "unit") markUnitDone(pw, pt.unitNo || nextUnitNum(pw));
       else if (pt.action === "test") pw.testDone = true;
       else if ((pt.action === "pages" || pt.action === "pit_pages") && pt.pages) pw.donePages = Math.min(pw.totalPages, pw.donePages + pt.pages);
     });
@@ -547,7 +555,7 @@ function weekPoolGen(ch, data, preTasks) {
   var tasks = []; var seq = 0;
   var nid = function () { return ch.id + "_wt" + (seq++); };
   var chalTask = function (w, day) {
-    if (w.doneUnits < w.totalUnits) { w.doneUnits++; return { id: nid(), label: w.name + " " + chalTag(w) + " 第" + w.doneUnits + "回", subject: w.subject, action: "unit", wbId: w.id, estMin: w.minPerUnit, day: day }; }
+    var _n = nextUnitNum(w); if (_n) { markUnitDone(w, _n); return { id: nid(), label: w.name + " " + chalTag(w) + " 第" + _n + "回", subject: w.subject, action: "unit", wbId: w.id, unitNo: _n, estMin: w.minPerUnit, day: day }; }
     if (w.hasTest && !w.testDone) { w.testDone = true; return { id: nid(), label: w.name + " " + chalTag(w) + " テスト", subject: w.subject, action: "test", wbId: w.id, estMin: w.minPerUnit, day: day }; }
     return null;
   };
@@ -640,6 +648,10 @@ function WeekPlanCard(p) {
   }
   var completeTask = function (t, elapsed, clearTimerKey) {
     var d = clone(data);
+    if (t.action === "unit" && t.unitNo && data.workbooks && data.workbooks[ch.id]) {
+      var _cw = data.workbooks[ch.id].find(function (w) { return w.id === t.wbId; });
+      if (_cw) { var _nn = nextUnitNum(_cw); if (_nn && _nn < t.unitNo && typeof window !== "undefined" && !window.confirm("第" + _nn + "回 がまだ終わっていないよ。\n先に第" + _nn + "回をやろう。\n\nそれでも第" + t.unitNo + "回を「できた」にする？")) return; }
+    }
     if (!d.todayChecks) d.todayChecks = {};
     if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
     if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
@@ -654,7 +666,7 @@ function WeekPlanCard(p) {
     if (t.wbId && d.workbooks && d.workbooks[ch.id]) {
       var wb = d.workbooks[ch.id].find(function (w) { return w.id === t.wbId; });
       if (wb) {
-        if (t.action === "unit") { wb.doneUnits = Math.min(wb.totalUnits || 0, (wb.doneUnits || 0) + 1); wbChallengeUndo = { wbId: t.wbId, wbAction: "unit" }; }
+        if (t.action === "unit") { var _un = t.unitNo || nextUnitNum(wb) || ((wb.doneUnits || 0) + 1); markUnitDone(wb, _un); wbChallengeUndo = { wbId: t.wbId, wbAction: "unit", unitNo: _un }; }
         else if (t.action === "test") { wb.testDone = true; wbChallengeUndo = { wbId: t.wbId, wbAction: "test" }; }
         else if ((t.action === "pages" || t.action === "pit_pages") && t.pages) { wb.donePages = Math.min(wb.totalPages || 0, (wb.donePages || 0) + t.pages); wbAdvance = { wbId: t.wbId, pages: t.pages }; }
       }
@@ -674,7 +686,7 @@ function WeekPlanCard(p) {
       var m = log.meta;
       if (d.points && d.points[ch.id]) { d.points[ch.id].balance = Math.max(0, d.points[ch.id].balance - (m.ptAwarded || 0)); d.points[ch.id].history = (d.points[ch.id].history || []).filter(function (h) { return h.id !== m.ptHistoryId; }); }
       if (m.wbAdvance && d.workbooks && d.workbooks[ch.id]) { var w1 = d.workbooks[ch.id].find(function (w) { return w.id === m.wbAdvance.wbId; }); if (w1) w1.donePages = Math.max(0, (w1.donePages || 0) - m.wbAdvance.pages); }
-      if (m.wbChallengeUndo && d.workbooks && d.workbooks[ch.id]) { var w2 = d.workbooks[ch.id].find(function (w) { return w.id === m.wbChallengeUndo.wbId; }); if (w2) { if (m.wbChallengeUndo.wbAction === "unit") w2.doneUnits = Math.max(0, (w2.doneUnits || 0) - 1); else if (m.wbChallengeUndo.wbAction === "test") w2.testDone = false; } }
+      if (m.wbChallengeUndo && d.workbooks && d.workbooks[ch.id]) { var w2 = d.workbooks[ch.id].find(function (w) { return w.id === m.wbChallengeUndo.wbId; }); if (w2) { if (m.wbChallengeUndo.wbAction === "unit") unmarkUnitDone(w2, m.wbChallengeUndo.unitNo); else if (m.wbChallengeUndo.wbAction === "test") w2.testDone = false; } }
       d.studyLogs[ch.id] = arr.filter(function (l) { return l.id !== log.id; });
     }
     if (d.todayChecks && d.todayChecks[ch.id] && d.todayChecks[ch.id][doneDate]) delete d.todayChecks[ch.id][doneDate][key];
@@ -761,7 +773,7 @@ function WeekPlanCard(p) {
       var wb = wbs.find(function (w) { return w.id === addWbId; });
       if (!wb) return;
       if (wb.type === "challenge") {
-        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: estMin, day: addDayIdx };
+        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " 第" + nextUnitNum(wb) + "回", subject: wb.subject, action: "unit", wbId: wb.id, unitNo: nextUnitNum(wb), estMin: estMin, day: addDayIdx };
         else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
         else return;
       } else {
@@ -846,7 +858,7 @@ function WeekPlanCard(p) {
       var wb = wbs.find(function (w) { return w.id === naddWbId; });
       if (!wb) return;
       if (wb.type === "challenge") {
-        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + chalTag(wb) + " 第" + ((wb.doneUnits || 0) + 1) + "回", subject: wb.subject, action: "unit", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
+        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + chalTag(wb) + " 第" + nextUnitNum(wb) + "回", subject: wb.subject, action: "unit", wbId: wb.id, unitNo: nextUnitNum(wb), estMin: wb.minPerUnit || 15, day: naddDay };
         else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_nx" + Date.now(), label: wb.name + " " + chalTag(wb) + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: wb.minPerUnit || 15, day: naddDay };
         else return;
       } else {
@@ -1322,7 +1334,7 @@ function HomeTab(p) {
       checkKey = "chal_" + item.wbId;
       if (!d.workbooks) d.workbooks = {};
       var wb = (d.workbooks[ch.id] || []).find(function (w) { return w.id === item.wbId; });
-      if (wb) wb.doneUnits = Math.min(wb.totalUnits, (wb.doneUnits || 0) + 1);
+      if (wb) markUnitDone(wb, item.unitNo || nextUnitNum(wb) || ((wb.doneUnits || 0) + 1));
     } else if (item.action === "test") {
       checkKey = "chaltest_" + item.wbId;
       var wb2 = (d.workbooks[ch.id] || []).find(function (w) { return w.id === item.wbId; });
@@ -1660,7 +1672,7 @@ function TodayPlanCard(p) {
         var unitsLeft = (wb.doneUnits || 0) < (wb.totalUnits || 0);
         var testLeft = !unitsLeft && wb.hasTest && !wb.testDone;
         if (unitsLeft) {
-          var nextUnit = (wb.doneUnits || 0) + 1;
+          var nextUnit = nextUnitNum(wb) || ((wb.doneUnits || 0) + 1);
           d.todayOverrides[ch.id][targetTD].added.push({
             id: "cust" + Date.now(),
             label: wb.name + " " + chalTag(wb) + " 第" + nextUnit + "回",
@@ -1668,6 +1680,7 @@ function TodayPlanCard(p) {
             time: (wb.minPerUnit || 15) + "分",
             wbId: wb.id,
             wbAction: "unit",
+            unitNo: nextUnit,
             emoji: "📕"
           });
         } else if (testLeft) {
@@ -1773,7 +1786,7 @@ function TodayPlanCard(p) {
     else { ptAmt = _pc.taskDone || 1; }
     var _ptHistoryId = "cp" + Date.now();
     var _wbAdvance = (item.wbId && item.pages && (item.wbAction === "pages" || item.wbAction === "pit_pages" || !item.wbAction)) ? { wbId: item.wbId, pages: item.pages } : undefined;
-    var _wbChallengeUndo = (item.wbId && (item.wbAction === "unit" || item.wbAction === "test")) ? { wbId: item.wbId, wbAction: item.wbAction } : undefined;
+    var _wbChallengeUndo = (item.wbId && (item.wbAction === "unit" || item.wbAction === "test")) ? { wbId: item.wbId, wbAction: item.wbAction, unitNo: item.unitNo } : undefined;
     d.points[ch.id].balance += ptAmt;
     d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: item.label + " 完了", date: targetTD, id: _ptHistoryId });
     if (item._elapsed && item._elapsed > 0) {
@@ -1808,7 +1821,7 @@ function TodayPlanCard(p) {
       var target = (d.workbooks[ch.id] || []).find(function (w) { return w.id === item.wbId; });
       if (target) {
         if (item.wbAction === "unit") {
-          target.doneUnits = Math.min(target.totalUnits || 0, (target.doneUnits || 0) + 1);
+          markUnitDone(target, item.unitNo || nextUnitNum(target) || ((target.doneUnits || 0) + 1));
         } else if (item.wbAction === "test") {
           target.testDone = true;
         } else if (item.pages && (item.wbAction === "pages" || item.wbAction === "pit_pages" || !item.wbAction)) {
@@ -1967,7 +1980,7 @@ function TodayPlanCard(p) {
                   var testLeft = !unitsLeft && selWb.hasTest && !selWb.testDone;
                   var nextMsg, isDone = false;
                   if (unitsLeft) {
-                    nextMsg = "📕 次に追加されるのは「第" + ((selWb.doneUnits || 0) + 1) + "回」（" + (selWb.minPerUnit || 15) + "分）です";
+                    nextMsg = "📕 次に追加されるのは「第" + nextUnitNum(selWb) + "回」（" + (selWb.minPerUnit || 15) + "分）です";
                   } else if (testLeft) {
                     nextMsg = "📝 次に追加されるのは「テスト」（" + (selWb.minPerUnit || 15) + "分）です";
                   } else {
@@ -2417,26 +2430,28 @@ function WorkbooksTab(p) {
   const [editUnitsVal, setEditUnitsVal] = useState("");
   const [editTestDoneVal, setEditTestDoneVal] = useState(false);
   const [editMonthVal, setEditMonthVal] = useState(""); // 2026-08-21 チャレンジ月号の編集
+  const [editNums, setEditNums] = useState([]); // 2026-08-22 チャレンジ回ごと完了の編集
   var startEditUnits = function (wb) {
     setEditUnitsId(wb.id);
     setEditUnitsVal(String(wb.doneUnits || 0));
     setEditTestDoneVal(!!wb.testDone);
     setEditMonthVal(String(chalMonth(wb)));
+    setEditNums(chalDoneNums(wb).slice());
   };
   var cancelEditUnits = function () {
     setEditUnitsId(null);
     setEditUnitsVal("");
     setEditTestDoneVal(false);
     setEditMonthVal("");
+    setEditNums([]);
   };
   var saveEditUnits = function (wbId) {
-    var n = parseInt(editUnitsVal);
-    if (isNaN(n)) { cancelEditUnits(); return; }
     var d = clone(data);
     var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
     if (target) {
-      var maxU = target.totalUnits || 0;
-      target.doneUnits = Math.min(maxU, Math.max(0, n));
+      var nums = (editNums || []).filter(function (x) { return x >= 1 && x <= (target.totalUnits || 0); });
+      nums.sort(function (a, b) { return a - b; });
+      target.doneNums = nums; target.doneUnits = nums.length;
       if (target.hasTest) target.testDone = !!editTestDoneVal;
       var _mm = parseInt(editMonthVal, 10); if (_mm >= 1 && _mm <= 12) target.issueMonth = _mm;
     }
@@ -2468,10 +2483,11 @@ function WorkbooksTab(p) {
     if (!wb) return;
     var d = clone(data);
     var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
-    if (target) target.doneUnits = Math.min(target.totalUnits, (target.doneUnits || 0) + 1);
+    var _mu = target ? nextUnitNum(target) : 0;
+    if (target && _mu) markUnitDone(target, _mu);
     ensurePts(d, ch.id);
     d.points[ch.id].balance += 1;
-    d.points[ch.id].history.push({ type: "earn", amount: 1, reason: wb.name + " 第" + target.doneUnits + "回完了", date: TD, id: "wb" + Date.now() });
+    d.points[ch.id].history.push({ type: "earn", amount: 1, reason: wb.name + " 第" + _mu + "回完了", date: TD, id: "wb" + Date.now() });
     save(d);
   };
   var markTest = function (wbId) {
@@ -2501,7 +2517,7 @@ function WorkbooksTab(p) {
   var resetChallenge = function (wbId) {
     var d = clone(data);
     var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
-    if (target) { target.doneUnits = 0; target.testDone = false; var _m = parseInt(target.issueMonth, 10); if (!(_m >= 1 && _m <= 12)) _m = CUR_MONTH; target.issueMonth = (_m % 12) + 1; }
+    if (target) { target.doneUnits = 0; target.doneNums = []; target.testDone = false; var _m = parseInt(target.issueMonth, 10); if (!(_m >= 1 && _m <= 12)) _m = CUR_MONTH; target.issueMonth = (_m % 12) + 1; }
     save(d);
   };
   var addChallenge = function () {
@@ -2559,21 +2575,27 @@ function WorkbooksTab(p) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13 }}>{wb.name || wb.subject} <span style={{ fontSize: 11, fontWeight: 700, color: ch.color }}>{chalTag(wb)}</span></div>
-                  <div style={{ fontSize: 11, color: "#aaa" }}>{wb.subject}・第{done}回 / 全{total}回{wb.hasTest ? "＋テスト" : ""}</div>
+                  <div style={{ fontSize: 11, color: "#aaa" }}>{wb.subject}・完了{done}回 / 全{total}回{wb.hasTest ? "＋テスト" : ""}</div>
                 </div>
                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  {!allDone && done < total && <button onClick={function () { markUnit(wb.id); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", fontSize: 10 }}>第{done + 1}回 ✓</button>}
+                  {!allDone && done < total && <button onClick={function () { markUnit(wb.id); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", fontSize: 10 }}>第{nextUnitNum(wb)}回 ✓</button>}
                   {!allDone && done >= total && wb.hasTest && !wb.testDone && <button onClick={function () { markTest(wb.id); }} style={{ ...S.smBtn, background: "#FF9800", color: "#fff", fontSize: 10 }}>テスト ✓</button>}
                   {allDone && <span style={{ fontSize: 12, color: "#4CAF50", fontWeight: 700 }}>✅</span>}
                   {isP && <button onClick={function () { startEditUnits(wb); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", fontSize: 10 }} title="完了回数を直接編集">✏️</button>}
                 </div>
               </div>
               <div style={{ ...S.progBar, marginTop: 6 }}><div style={{ height: "100%", borderRadius: 3, background: ch.color, width: pct + "%" }} /></div>
+              {total > 0 && (function () { var _dn = chalDoneNums(wb); var _sk = skippedUnits(wb); var _arr = []; for (var _u = 1; _u <= total; _u++) _arr.push(_u); return (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>{_arr.map(function (u) { var on = _dn.indexOf(u) >= 0; var gap = !on && _sk.indexOf(u) >= 0; return <span key={u} title={"第" + u + "回"} style={{ fontSize: 9, minWidth: 16, textAlign: "center", padding: "2px 3px", borderRadius: 4, fontWeight: 700, background: on ? ch.color : (gap ? "#FFEBEE" : "#f0f0f0"), color: on ? "#fff" : (gap ? "#E53935" : "#bbb"), border: gap ? "1px solid #E53935" : "1px solid transparent" }}>{u}</span>; })}</div>
+                  {_sk.length > 0 && <div style={{ fontSize: 10, color: "#E53935", fontWeight: 700, marginTop: 3 }}>⚠️ とばした回: {_sk.map(function (u) { return "第" + u + "回"; }).join("・")}</div>}
+                </div>
+              ); })()}
               {isP && editUnitsId === wb.id && (
                 <div style={{ marginTop: 8, padding: 8, background: "#FFFDE7", borderRadius: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>完了回数:</span>
-                  <input type="number" value={editUnitsVal} onChange={function (e) { setEditUnitsVal(e.target.value); }} min="0" max={total} style={{ ...S.input, width: 60, textAlign: "center", padding: "4px 6px" }} />
-                  <span style={{ fontSize: 11, color: "#999" }}>/ {total}回</span>
+                  <div style={{ width: "100%", fontSize: 11, color: "#666", fontWeight: 600, marginBottom: 2 }}>やった回をえらぶ（タップで切替）:</div>
+                  <div style={{ width: "100%", display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 2 }}>{(function () { var arr = []; for (var _u = 1; _u <= total; _u++) arr.push(_u); return arr; })().map(function (u) { var on = (editNums || []).indexOf(u) >= 0; return <button key={u} onClick={function () { setEditNums(on ? editNums.filter(function (x) { return x !== u; }) : editNums.concat([u])); }} style={{ ...S.smBtn, background: on ? ch.color : "#f0f0f0", color: on ? "#fff" : "#999", fontSize: 11, minWidth: 30, padding: "4px 6px" }}>{u}</button>; })}</div>
+                  <span style={{ width: "100%", fontSize: 10, color: "#999", marginBottom: 4 }}>えらんだ回だけ「やった」になります（{(editNums || []).length}/{total}回）</span>
                   {wb.hasTest && (
                     <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginLeft: 6 }}>
                       <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>テスト:</span>
@@ -2949,7 +2971,7 @@ function ReviewTab(p) {
         var wbCh = dd.workbooks[ch.id].find(function (w) { return w.id === m.wbChallengeUndo.wbId; });
         if (wbCh) {
           if (m.wbChallengeUndo.wbAction === "unit") {
-            wbCh.doneUnits = Math.max(0, (wbCh.doneUnits || 0) - 1);
+            unmarkUnitDone(wbCh, m.wbChallengeUndo.unitNo);
           } else if (m.wbChallengeUndo.wbAction === "test") {
             wbCh.testDone = false;
           }
@@ -3026,7 +3048,7 @@ function ReviewTab(p) {
       if (wb.type === "challenge") {
         var unitsLeft = (wb.doneUnits || 0) < (wb.totalUnits || 0);
         var testLeft = !unitsLeft && wb.hasTest && !wb.testDone;
-        if (unitsLeft) { wbAction = "unit"; label = wb.name + " " + chalTag(wb) + " 第" + ((wb.doneUnits || 0) + 1) + "回"; ptAmt = _pc.chalUnit || 1; }
+        if (unitsLeft) { wbAction = "unit"; var _chalNo = nextUnitNum(wb) || ((wb.doneUnits || 0) + 1); label = wb.name + " " + chalTag(wb) + " 第" + _chalNo + "回"; ptAmt = _pc.chalUnit || 1; }
         else if (testLeft) { wbAction = "test"; label = wb.name + " " + chalTag(wb) + " テスト"; ptAmt = _pc.chalTest || 2; }
         else { return; }
       } else {
@@ -3047,7 +3069,7 @@ function ReviewTab(p) {
     if (wbId) {
       var target = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
       if (target) {
-        if (wbAction === "unit") { target.doneUnits = Math.min(target.totalUnits || 0, (target.doneUnits || 0) + 1); wbChallengeUndo = { wbId: wbId, wbAction: "unit" }; }
+        if (wbAction === "unit") { markUnitDone(target, _chalNo); wbChallengeUndo = { wbId: wbId, wbAction: "unit", unitNo: _chalNo }; }
         else if (wbAction === "test") { target.testDone = true; wbChallengeUndo = { wbId: wbId, wbAction: "test" }; }
         else if (wbAction === "pages") { target.donePages = Math.min(target.totalPages || 0, (target.donePages || 0) + pages); wbAdvance = { wbId: wbId, pages: pages }; }
       }
@@ -3085,7 +3107,7 @@ function ReviewTab(p) {
         var wbChR = dd.workbooks[ch.id].find(function (w) { return w.id === l.meta.wbChallengeUndo.wbId; });
         if (wbChR) {
           if (l.meta.wbChallengeUndo.wbAction === "unit") {
-            wbChR.doneUnits = Math.max(0, (wbChR.doneUnits || 0) - 1);
+            unmarkUnitDone(wbChR, l.meta.wbChallengeUndo.unitNo);
           } else if (l.meta.wbChallengeUndo.wbAction === "test") {
             wbChR.testDone = false;
           }
@@ -3281,7 +3303,7 @@ function ReviewTab(p) {
                       var unitsLeft = (selWb.doneUnits || 0) < (selWb.totalUnits || 0);
                       var testLeft = !unitsLeft && selWb.hasTest && !selWb.testDone;
                       var msg, isDone = false;
-                      if (unitsLeft) msg = "📕 「第" + ((selWb.doneUnits || 0) + 1) + "回」を記録します";
+                      if (unitsLeft) msg = "📕 「第" + nextUnitNum(selWb) + "回」を記録します";
                       else if (testLeft) msg = "📝 「テスト」を記録します";
                       else { msg = "✅ この問題集はすべて完了しています"; isDone = true; }
                       return <div style={{ fontSize: 11, color: isDone ? "#aaa" : "#555", marginBottom: 6, padding: "8px 10px", background: isDone ? "#f5f5f5" : "#FFFDE7", borderRadius: 8, lineHeight: 1.5 }}>{msg}</div>;
