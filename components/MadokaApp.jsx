@@ -588,6 +588,7 @@ function WeekPlanCard(p) {
   const [addWbId, setAddWbId] = useState("");
   const [addLabel, setAddLabel] = useState("");
   const [addMin, setAddMin] = useState("");
+  const [addFreePages, setAddFreePages] = useState(""); // 2026-08-22 自由入力タスクのページ欄
   const [addDayIdx, setAddDayIdx] = useState(0);
   const [kanjiTestIdx, setKanjiTestIdx] = useState(-1);
   const [kanjiResultOpen, setKanjiResultOpen] = useState(false);
@@ -782,12 +783,13 @@ function WeekPlanCard(p) {
       }
     } else {
       if (!addLabel.trim()) return;
-      t = { id: ch.id + "_wa" + Date.now(), label: addLabel.trim(), subject: "", action: "free", estMin: estMin, day: addDayIdx };
+      var _lbl = addLabel.trim() + (addFreePages.trim() ? "（" + addFreePages.trim() + "）" : "");
+      t = { id: ch.id + "_wa" + Date.now(), label: _lbl, subject: "", action: "free", estMin: estMin, day: addDayIdx };
     }
     d.weekPlan[ch.id].tasks.push(t);
     if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, "this");
     save(d);
-    setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin("");
+    setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin(""); setAddFreePages("");
   };
   // まちがえた漢字の練習を追加：練習タスク（週プール）＋間違えた漢字リスト＋練習履歴に登録
   var addKanjiPractice = function () {
@@ -1199,7 +1201,10 @@ function WeekPlanCard(p) {
                   {addWbId ? (
                     <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 6 }}>{wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}</option>; })}</select>
                   ) : (
-                    <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: プリント1枚" style={{ ...S.input, marginBottom: 6 }} />
+                    <div>
+                      <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 間違いなおし" style={{ ...S.input, marginBottom: 6 }} />
+                      <input value={addFreePages} onChange={function (e) { setAddFreePages(e.target.value); }} placeholder="ページ（任意）例: P12〜15" style={{ ...S.input, marginBottom: 6 }} />
+                    </div>
                   )}
                   <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontSize: 11, color: "#666" }}>目安</span>
@@ -1539,6 +1544,7 @@ function TodayPlanCard(p) {
   const [addSubj, setAddSubj] = useState(ch.subjects[0] || "");
   const [addWbId, setAddWbId] = useState("");
   const [addWbPages, setAddWbPages] = useState("2");
+  const [addFreePages, setAddFreePages] = useState(""); // 2026-08-22 自由入力タスクのページ欄
   const [kanjiInput, setKanjiInput] = useState("");
   const [showKanji, setShowKanji] = useState(false);
   const [kanjiTestIdx, setKanjiTestIdx] = useState(-1); // 漢字テスト問題閲覧インデックス（-1=非表示）
@@ -1713,10 +1719,11 @@ function TodayPlanCard(p) {
         });
       }
     } else {
-      d.todayOverrides[ch.id][targetTD].added.push({ id: "cust" + Date.now(), label: addLabel.trim(), subject: addSubj, time: "", emoji: "✏️" });
+      d.todayOverrides[ch.id][targetTD].added.push({ id: "cust" + Date.now(), label: addLabel.trim() + (addFreePages.trim() ? "（" + addFreePages.trim() + "）" : ""), subject: addSubj, time: "", emoji: "✏️" });
     }
     save(d);
     setAddLabel("");
+    setAddFreePages("");
     setAddWbId("");
   };
   // 漢字練習を1つのタスクとして追加（2026-05-16 修正：以前は1文字ずつ別タスクに分解されていた）
@@ -2005,7 +2012,10 @@ function TodayPlanCard(p) {
           ) : (
             <div>
               <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 算数テスト勉強" style={{ ...S.input, flex: 1 }} />
+                <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 間違いなおし" style={{ ...S.input, flex: 1 }} />
+              </div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <input value={addFreePages} onChange={function (e) { setAddFreePages(e.target.value); }} placeholder="ページ（任意）例: P12〜15" style={{ ...S.input, flex: 1 }} />
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <select value={addSubj} onChange={function (e) { setAddSubj(e.target.value); }} style={{ ...S.input, flex: 1 }}>
