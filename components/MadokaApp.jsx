@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 const CHILDREN = [
   { id: "daigo", name: "橙吾", grade: "中1", emoji: "⚽", color: "#333333", colorLight: "#F5F5F5", subjects: ["国語", "数学", "英語", "理科", "社会"], mode: "managed" },
-  { id: "eishi", name: "叡志", grade: "小5", emoji: "🦎", color: "#2E7D32", colorLight: "#E8F5E9", subjects: ["国語", "算数", "理科", "社会", "英語"], mode: "managed" }, // 2026-08-22 色変更: 渋めの深緑（旧 水色#29B6F6→優珠綺へ）
-  { id: "yuzuki", name: "優珠綺", grade: "小2", emoji: "🌸", color: "#29B6F6", colorLight: "#E6F7FF", subjects: ["国語", "算数", "生活", "音楽", "図工", "体育"], mode: "managed" }, // 2026-08-22 色変更: 叡志の旧水色に（本人希望）
+  { id: "eishi", name: "叡志", grade: "小5", emoji: "🦎", color: "#29B6F6", colorLight: "#E6F7FF", subjects: ["国語", "算数", "理科", "社会", "英語"], mode: "managed" }, // 2026-08-22 叡志・優珠綺とも同じ水色に（叡志は緑をやめ元の水色に戻す・本人希望）
+  { id: "yuzuki", name: "優珠綺", grade: "小2", emoji: "🌸", color: "#29B6F6", colorLight: "#E6F7FF", subjects: ["国語", "算数", "生活", "音楽", "図工", "体育"], mode: "managed" }, // 2026-08-22 叡志と同じ水色（本人希望）
   { id: "yukino", name: "優綺乃", grade: "2歳", emoji: "🍓", color: "#E74860", colorLight: "#FFF0F3", subjects: [], mode: "managed" },
 ];
 // Default test config per child (used only when no stored config exists)
