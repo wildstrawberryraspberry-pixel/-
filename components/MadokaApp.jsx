@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 const CHILDREN = [
-  { id: "daigo", name: "橙吾", grade: "中1", emoji: "⚽", color: "#333333", colorLight: "#F5F5F5", subjects: ["国語", "数学", "英語", "理科", "社会"], mode: "managed" },
+  { id: "daigo", name: "橙吾", grade: "中1", emoji: "⚽", color: "#333333", colorLight: "#F5F5F5", subjects: ["国語", "数学", "英語", "理科", "社会"], mode: "managed", selfManage: true },
   { id: "eishi", name: "叡志", grade: "小5", emoji: "🦎", color: "#29B6F6", colorLight: "#E6F7FF", subjects: ["国語", "算数", "理科", "社会", "英語"], mode: "managed" }, // 2026-08-22 叡志・優珠綺とも同じ水色に（叡志は緑をやめ元の水色に戻す・本人希望）
   { id: "yuzuki", name: "優珠綺", grade: "小2", emoji: "🌸", color: "#29B6F6", colorLight: "#E6F7FF", subjects: ["国語", "算数", "生活", "音楽", "図工", "体育"], mode: "managed" }, // 2026-08-22 叡志と同じ水色（本人希望）
   { id: "yukino", name: "優綺乃", grade: "2歳", emoji: "🍓", color: "#E74860", colorLight: "#FFF0F3", subjects: [], mode: "managed" },
@@ -98,6 +98,73 @@ function ensurePts(d, cid) {
   return d;
 }
 // ═══ APP ═══
+// ===== 端末の担当わけ・パスコード（2026-09-06 プライバシー保護） =====
+function PassModal(p) {
+  // p.mode: "verify" | "create" ; p.expected ; p.onOk(code) ; p.onCancel ; p.title
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const [err, setErr] = useState("");
+  var isCreate = p.mode === "create";
+  var submit = function () {
+    if (isCreate) {
+      if (!/^[0-9]{4}$/.test(a)) { setErr("4桁の数字を入れてください"); return; }
+      if (a !== b) { setErr("かくにん用ともう一度そろえてください"); return; }
+      p.onOk(a);
+    } else {
+      if (a === p.expected) { p.onOk(a); } else { setErr("パスコードがちがいます"); setA(""); }
+    }
+  };
+  var inp = function (val, set, ph) {
+    return <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={val}
+      onChange={function (e) { set(e.target.value.replace(/[^0-9]/g, "")); setErr(""); }}
+      placeholder={ph} style={{ width: 150, textAlign: "center", fontSize: 28, letterSpacing: 10, padding: "10px 0", borderRadius: 12, border: "2px solid #ccc", fontFamily: "inherit" }} />;
+  };
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, fontFamily: "'Zen Maru Gothic',sans-serif" }}>
+      <div style={{ background: "#fff", borderRadius: 20, padding: "26px 22px", width: 300, textAlign: "center", boxShadow: "0 10px 40px rgba(0,0,0,.25)" }}>
+        <div style={{ fontSize: 34, marginBottom: 6 }}>{isCreate ? "🔑" : "🔒"}</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: "#333", marginBottom: 4 }}>{p.title || (isCreate ? "お母さんパスコードを決める" : "お母さんパスコード")}</div>
+        <div style={{ fontSize: 12, color: "#999", marginBottom: 16 }}>{isCreate ? "4桁の数字を2回入れてください" : "4桁の数字を入れてください"}</div>
+        <div style={{ marginBottom: 12 }}>{inp(a, setA, "＊＊＊＊")}</div>
+        {isCreate && <div style={{ marginBottom: 12 }}>{inp(b, setB, "かくにん")}</div>}
+        {err && <div style={{ fontSize: 12, color: "#E74860", fontWeight: 700, marginBottom: 10 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+          <button onClick={p.onCancel} style={{ flex: 1, padding: "11px 0", borderRadius: 12, border: "2px solid #ddd", background: "#fff", fontSize: 14, fontWeight: 700, color: "#888", cursor: "pointer", fontFamily: "inherit" }}>やめる</button>
+          <button onClick={submit} style={{ flex: 1, padding: "11px 0", borderRadius: 12, border: "none", background: "#7C6FF0", fontSize: 14, fontWeight: 800, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>{isCreate ? "きめる" : "はいる"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function BindSetup(p) {
+  // p.passStored ; p.onBindChild(id) ; p.onBindMom() ; p.onCreatePass(code)
+  const [modal, setModal] = useState(null); // null | "verify" | "create"
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "linear-gradient(135deg,#F7F6F3,#EDE9FF)", fontFamily: "'Zen Maru Gothic',sans-serif", padding: "24px 0" }}>
+      <style>{cssText}</style>
+      <div style={{ fontSize: 46, marginBottom: 6 }}>📚</div>
+      <div style={{ fontSize: 18, fontWeight: 900, color: "#333" }}>まどかファミリー学習帳</div>
+      <div style={{ fontSize: 13, color: "#666", marginTop: 10, textAlign: "center", lineHeight: 1.6 }}>この たんまつ は だれの ものですか？<br /><span style={{ fontSize: 11, color: "#aaa" }}>さいしょに1回だけえらびます（あとで変えられます）</span></div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, width: 250, marginTop: 22 }}>
+        {CHILDREN.map(function (c) {
+          return (
+            <button key={c.id} onClick={function () { p.onBindChild(c.id); }} style={{ padding: "15px 0", borderRadius: 16, border: "2px solid " + c.color, background: c.colorLight, fontSize: 17, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", color: c.color }}>
+              {c.emoji} {c.name}
+            </button>
+          );
+        })}
+        <div style={{ height: 1, background: "#e2ddf5", margin: "6px 0" }} />
+        <button onClick={function () { setModal(p.passStored ? "verify" : "create"); }} style={{ padding: "15px 0", borderRadius: 16, border: "2px solid #7C6FF0", background: "#fff", fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", color: "#7C6FF0" }}>
+          👩 お母さん（この端末）
+        </button>
+        <div style={{ fontSize: 11, color: "#aaa", textAlign: "center" }}>お母さんはパスコードで守られます</div>
+      </div>
+      {modal && <PassModal mode={modal} expected={p.passStored}
+        onCancel={function () { setModal(null); }}
+        onOk={function (code) { if (modal === "create") p.onCreatePass(code); p.onBindMom(); }} />}
+    </div>
+  );
+}
 export default function App() {
   // Refresh date every render
   var _t = getToday();
@@ -105,11 +172,14 @@ export default function App() {
   const [data, setData] = useState(mkData);
   const [ready, setReady] = useState(false);
   const [kc, setKc] = useState(0); // コーパス読込後の再描画トリガ
-  const [user, setUser] = useState(null); // null = login screen, "parent" or child id
+  const [bind, setBind] = useState(undefined); // undefined=未読込, ""=未設定, childId, "mom"
+  const [momUnlocked, setMomUnlocked] = useState(false);
   const dataRef = useRef(data);
   const savingRef = useRef(false);
   // Keep dataRef in sync
   useEffect(function () { dataRef.current = data; }, [data]);
+  // 端末の担当（localStorage）をマウント後に読み込む
+  useEffect(function () { var b = ""; try { b = window.localStorage.getItem("madoka-bind") || ""; } catch (e) { b = ""; } setBind(b); }, []);
   // Parse and normalize stored data
   function parseStored(raw) {
     try {
@@ -196,8 +266,11 @@ export default function App() {
     } catch (e) { /* ignore */ }
     savingRef.current = false;
   }, []);
+  var passStored = (data && data.momPasscode) || "";
+  var applyBind = function (b) { try { window.localStorage.setItem("madoka-bind", b); } catch (e) {} setBind(b); setMomUnlocked(false); };
+  var setPass = function (code) { var d = clone(data); d.momPasscode = code; save(d); };
   // Login screen
-  if (!ready) {
+  if (!ready || bind === undefined) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "#F7F6F3" }}>
         <style>{cssText}</style>
@@ -207,37 +280,37 @@ export default function App() {
       </div>
     );
   }
-  if (!user) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "linear-gradient(135deg, #F7F6F3, #EDE9FF)", fontFamily: "'Zen Maru Gothic',sans-serif" }}>
-        <style>{cssText}</style>
-        <div style={{ fontSize: 50, marginBottom: 6 }}>📚</div>
-        <div style={{ fontSize: 20, fontWeight: 900, color: "#333", marginBottom: 4 }}>まどかファミリー学習帳</div>
-        <div style={{ fontSize: 13, color: "#999", marginBottom: 28 }}>だれが使いますか？</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: 240 }}>
-          <button onClick={function () { setUser("parent"); }} style={{ padding: "14px 0", borderRadius: 16, border: "2px solid #555", background: "#fff", fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", color: "#333" }}>
-            👩‍👧‍👦 お母さん
-          </button>
-          {CHILDREN.map(function (c) {
-            return (
-              <button key={c.id} onClick={function () { setUser(c.id); }} style={{ padding: "14px 0", borderRadius: 16, border: "2px solid " + c.color, background: c.colorLight, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", color: c.color }}>
-                {c.emoji} {c.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    );
+  // 端末の担当が未設定 → だれの端末かを選ぶ
+  if (!bind) {
+    return <BindSetup passStored={passStored}
+      onBindChild={function (id) { applyBind(id); }}
+      onBindMom={function () { applyBind("mom"); }}
+      onCreatePass={setPass} />;
   }
-  var isP = user === "parent";
-  var sel = isP ? null : user;
-  return <MainView data={data} save={save} isP={isP} fixedChild={sel} onLogout={function () { setUser(null); }} />;
+  // 有効な表示モードを決定
+  var selfCh = CHILDREN.find(function (c) { return c.id === bind && c.selfManage; });
+  var fullParent = (bind === "mom") || momUnlocked;
+  var isP, fixedChild, scopedName;
+  if (fullParent) { isP = true; fixedChild = null; scopedName = null; }
+  else if (selfCh) { isP = true; fixedChild = bind; scopedName = selfCh.name; } // 橙吾: 自分だけ管理
+  else { isP = false; fixedChild = bind; scopedName = null; } // 子どもモード
+  return <MainView data={data} save={save} isP={isP} fixedChild={fixedChild}
+    scopedName={scopedName} bind={bind} fullParent={fullParent} passStored={passStored}
+    onUnlock={function () { setMomUnlocked(true); }}
+    onLock={function () { setMomUnlocked(false); }}
+    onRebind={function (b) { applyBind(b); }}
+    onSetPass={setPass} />;
 }
 // ═══ MAIN VIEW ═══
 function MainView(p) {
-  var data = p.data, save = p.save, isP = p.isP, fixedChild = p.fixedChild, onLogout = p.onLogout;
+  var data = p.data, save = p.save, isP = p.isP, fixedChild = p.fixedChild;
+  var scopedName = p.scopedName, bind = p.bind, fullParent = p.fullParent, passStored = p.passStored;
+  var onUnlock = p.onUnlock, onLock = p.onLock, onRebind = p.onRebind, onSetPass = p.onSetPass;
   const [sel, setSel] = useState(fixedChild || "eishi");
   const [tab, setTab] = useState("home");
+  const [menu, setMenu] = useState(null); // null | "unlock" | "device" | "pass"
+  // 子ども端末では常にその子に固定（お母さんがロックに戻したとき戻す）
+  useEffect(function () { if (fixedChild && sel !== fixedChild) { setSel(fixedChild); setTab("home"); } }, [fixedChild]);
   var ch = CHILDREN.find(function (c) { return c.id === sel; }) || CHILDREN[0];
   var isM = ch.mode === "managed";
   var pts = (data.points[ch.id] && data.points[ch.id].balance) || 0;
@@ -253,10 +326,16 @@ function MainView(p) {
   return (
     <div style={S.app}>
       <style>{cssText}</style>
-      {/* Logout + mode label */}
+      {/* 上部バー：担当表示・お母さん解錠・端末設定 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px" }}>
-        <button onClick={onLogout} style={{ background: "none", border: "none", fontSize: 12, color: "#999", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>← もどる</button>
-        <span style={{ fontSize: 12, color: "#999", fontWeight: 600 }}>{isP ? "👩‍👧‍👦 お母さん" : <Kid t={ch.emoji + " " + ch.name} ch={ch} data={data} on={!isP} />}</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {(!isP || scopedName) && <button onClick={function () { setMenu("unlock"); }} style={{ background: "none", border: "1px solid #e0dcf5", borderRadius: 10, fontSize: 11, color: "#7C6FF0", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, padding: "4px 10px" }}>👩 お母さん</button>}
+          {isP && !scopedName && fullParent && bind !== "mom" && <button onClick={onLock} style={{ background: "none", border: "1px solid #eee", borderRadius: 10, fontSize: 11, color: "#999", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, padding: "4px 10px" }}>🔒 子どもにもどす</button>}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 12, color: "#999", fontWeight: 600 }}>{isP ? (scopedName ? (ch.emoji + " " + scopedName) : "👩‍👧‍👦 お母さん") : <Kid t={ch.emoji + " " + ch.name} ch={ch} data={data} on={!isP} />}</span>
+          {isP && !scopedName && <button onClick={function () { setMenu("device"); }} style={{ background: "none", border: "none", fontSize: 15, cursor: "pointer" }} title="端末設定">⚙️</button>}
+        </div>
       </div>
       {/* Header */}
       <header style={{ ...S.header, background: "linear-gradient(135deg," + ch.color + "," + ch.color + "cc)" }}>
@@ -268,8 +347,8 @@ function MainView(p) {
           {isM && <div style={S.badge}>⭐{pts}pt</div>}
         </div>
       </header>
-      {/* Child tabs - only for parent */}
-      {isP && (
+      {/* Child tabs - only for parent (端末が特定の子に固定のときは隠す) */}
+      {isP && !fixedChild && (
         <div style={S.childBar}>
           {CHILDREN.map(function (c) {
             return (
@@ -301,6 +380,36 @@ function MainView(p) {
           );
         })}
       </nav>
+      {menu === "unlock" && (
+        <PassModal mode={passStored ? "verify" : "create"} expected={passStored}
+          title="お母さんパスコード"
+          onCancel={function () { setMenu(null); }}
+          onOk={function (code) { if (!passStored) onSetPass(code); onUnlock(); setMenu(null); }} />
+      )}
+      {menu === "pass" && (
+        <PassModal mode="create" title="パスコードを変える"
+          onCancel={function () { setMenu(null); }}
+          onOk={function (code) { onSetPass(code); setMenu(null); }} />
+      )}
+      {menu === "device" && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, fontFamily: "'Zen Maru Gothic',sans-serif" }} onClick={function () { setMenu(null); }}>
+          <div onClick={function (e) { e.stopPropagation(); }} style={{ background: "#fff", borderRadius: 20, padding: "22px 20px", width: 300, boxShadow: "0 10px 40px rgba(0,0,0,.25)" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#333", marginBottom: 4 }}>📱 端末の設定</div>
+            <div style={{ fontSize: 11, color: "#999", marginBottom: 16 }}>この端末は今「{bind === "mom" ? "お母さん" : (childById(bind) ? childById(bind).name : bind)}」用です</div>
+            <button onClick={function () { setMenu("pass"); }} style={{ width: "100%", padding: "12px 0", borderRadius: 12, border: "2px solid #7C6FF0", background: "#fff", fontSize: 14, fontWeight: 800, color: "#7C6FF0", cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>🔑 パスコードを変える</button>
+            <div style={{ fontSize: 12, color: "#666", fontWeight: 700, marginBottom: 8 }}>この端末をだれ用にするか</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {CHILDREN.map(function (c) {
+                var on = bind === c.id;
+                return <button key={c.id} onClick={function () { onRebind(c.id); setMenu(null); }} style={{ padding: "11px 0", borderRadius: 12, border: "2px solid " + (on ? c.color : "#eee"), background: on ? c.colorLight : "#fff", fontSize: 14, fontWeight: 800, color: c.color, cursor: "pointer", fontFamily: "inherit" }}>{c.emoji} {c.name}{on ? " ✓" : ""}</button>;
+              })}
+              <button onClick={function () { onRebind("mom"); setMenu(null); }} style={{ padding: "11px 0", borderRadius: 12, border: "2px solid " + (bind === "mom" ? "#7C6FF0" : "#eee"), background: bind === "mom" ? "#F1EFFF" : "#fff", fontSize: 14, fontWeight: 800, color: "#7C6FF0", cursor: "pointer", fontFamily: "inherit" }}>👩 お母さん（この端末）{bind === "mom" ? " ✓" : ""}</button>
+            </div>
+            {fullParent && bind !== "mom" && <button onClick={function () { setMenu(null); onLock(); }} style={{ width: "100%", padding: "11px 0", borderRadius: 12, border: "none", background: "#f3f3f3", fontSize: 13, fontWeight: 700, color: "#999", cursor: "pointer", fontFamily: "inherit", marginTop: 14 }}>🔒 子どもモードにもどす</button>}
+            <button onClick={function () { setMenu(null); }} style={{ width: "100%", padding: "10px 0", borderRadius: 12, border: "none", background: "none", fontSize: 13, fontWeight: 700, color: "#bbb", cursor: "pointer", fontFamily: "inherit", marginTop: 6 }}>とじる</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
