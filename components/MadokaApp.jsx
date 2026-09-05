@@ -104,6 +104,7 @@ export default function App() {
   NOW = _t.now; TD = _t.td; TDI = _t.tdi;
   const [data, setData] = useState(mkData);
   const [ready, setReady] = useState(false);
+  const [kc, setKc] = useState(0); // コーパス読込後の再描画トリガ
   const [user, setUser] = useState(null); // null = login screen, "parent" or child id
   const dataRef = useRef(data);
   const savingRef = useRef(false);
@@ -167,6 +168,7 @@ export default function App() {
       if (ok) setReady(true);
     }
     load();
+    loadKanjiCorpus().then(function () { if (ok) setKc(function (n) { return n + 1; }); });
     return function () { ok = false; };
   }, []);
   // Poll for updates every 15 seconds + reload on visibility change
@@ -345,17 +347,122 @@ function kanjiDailyQueue(list, seedStr) {
   for (var j = arr.length - 1; j > 0; j--) { var r = Math.floor(rand() * (j + 1)); var tmp = arr[j]; arr[j] = arr[r]; arr[r] = tmp; }
   return arr.slice(0, 10);
 }
+// ===== 既習漢字 定着SRS（2026-09-04 新設）=====
+var KANJI_CORPUS = {}; // {grade:{char:[{word,reading,type}]}} Supabaseのkanji_wordsから読み込み
+var SRS_INTERVALS = [0, 1, 3, 7, 14, 30]; var SRS_MASTER_BOX = 5;
+async function loadKanjiCorpus() {
+  try {
+    var r = await supabase.from("kanji_words").select("grade,kanji,word,reading,reading_type,example,sort").order("grade").order("sort");
+    var rows = r.data || []; var c = {};
+    rows.forEach(function (x) { if (!c[x.grade]) c[x.grade] = {}; if (!c[x.grade][x.kanji]) c[x.grade][x.kanji] = []; c[x.grade][x.kanji].push({ word: x.word, reading: x.reading, type: x.reading_type, example: x.example }); });
+    KANJI_CORPUS = c; buildKanjiReadIndex();
+  } catch (e) { /* ignore */ }
+}
+function srsYmd(dt) { return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"); }
+function srsAddDays(dateStr, n) { var p = dateStr.split("-"); var dt = new Date(+p[0], +p[1] - 1, +p[2]); dt.setDate(dt.getDate() + n); return srsYmd(dt); }
+function srsPick(arr, seedStr) { if (!arr || !arr.length) return null; var h = 2166136261; for (var i = 0; i < seedStr.length; i++) { h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619); } return arr[(h >>> 0) % arr.length]; }
+function srsSettings(d, chId) { var def = { on: true, dailyCap: (chId === "yuzuki" ? 6 : 8), newPerDay: (chId === "yuzuki" ? 3 : 5), mixPrior: true }; var s = (d.kanjiSettings && d.kanjiSettings[chId]) || {}; return Object.assign({}, def, s); }
+function srsCurGrade(ch) { return gradeAllowed(ch) + 1; }
+function srsPriorGrades(ch) { var a = []; for (var g = 1; g <= gradeAllowed(ch); g++) a.push(g); return a; }
+function childById(id) { for (var i = 0; i < CHILDREN.length; i++) if (CHILDREN[i].id === id) return CHILDREN[i]; return null; }
+function srsSelect(d, chId, ch, date, roomLeft) {
+  var st = srsSettings(d, chId); if (!st.on) return [];
+  var srs = (d.kanjiSRS && d.kanjiSRS[chId]) || {};
+  var cap = Math.max(0, roomLeft != null ? roomLeft : st.dailyCap); if (cap <= 0) return [];
+  var curGrade = srsCurGrade(ch); var priors = srsPriorGrades(ch);
+  function collect(grade, isCur) { var out = []; var chars = (KANJI_CORPUS[grade] && Object.keys(KANJI_CORPUS[grade])) || []; chars.forEach(function (c) { var s = srs[c]; if (!s || !s.taught) return; if ((s.box || 0) >= SRS_MASTER_BOX) { if (!s.due || s.due > date) return; } else { if (s.due && s.due > date) return; } out.push({ char: c, grade: grade, isCur: isCur, s: s }); }); return out; }
+  function sortTier(a, b) { if ((!!b.s.focus) - (!!a.s.focus)) return (!!b.s.focus) - (!!a.s.focus); if ((b.s.wrong || 0) !== (a.s.wrong || 0)) return (b.s.wrong || 0) - (a.s.wrong || 0); if ((a.s.box || 0) !== (b.s.box || 0)) return (a.s.box || 0) - (b.s.box || 0); return (a.s.due || "").localeCompare(b.s.due || ""); }
+  var current = collect(curGrade, true);
+  var curReview = current.filter(function (x) { return (x.s.seen || 0) > 0; }).sort(sortTier);
+  var curNew = current.filter(function (x) { return (x.s.seen || 0) === 0; }).sort(sortTier);
+  var chosen = []; var i;
+  for (i = 0; i < curReview.length && chosen.length < cap; i++) chosen.push(curReview[i]);
+  var newCount = 0; for (i = 0; i < curNew.length && chosen.length < cap && newCount < st.newPerDay; i++) { chosen.push(curNew[i]); newCount++; }
+  var heldBack = curNew.length > newCount;
+  if (st.mixPrior && chosen.length < cap && !heldBack) { var prior = []; priors.forEach(function (g) { prior = prior.concat(collect(g, false)); }); prior.sort(sortTier); for (i = 0; i < prior.length && chosen.length < cap; i++) chosen.push(prior[i]); }
+  return chosen.map(function (x) { var words = (KANJI_CORPUS[x.grade] && KANJI_CORPUS[x.grade][x.char]) || []; var w = srsPick(words, date + ":" + x.char + ":" + (x.s.seen || 0)) || { word: x.char, reading: "", type: "" }; return { id: "srs:" + chId + ":" + x.char + ":" + date, kanji: w.word, reading: w.reading || "", sentence: w.example || "", srs: true, srsChar: x.char, srsType: w.type || "", srsGrade: x.grade }; });
+}
+function srsApply(d, chId, srsChar, correct, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][srsChar] || { box: 0, taught: true, focus: true, seen: 0, wrong: 0 }; s.seen = (s.seen || 0) + 1; if (correct) { s.box = Math.min(SRS_MASTER_BOX, (s.box || 0) + 1); if (s.box >= 3) s.focus = false; } else { s.box = 1; s.wrong = (s.wrong || 0) + 1; } s.due = srsAddDays(date, SRS_INTERVALS[Math.min(s.box, SRS_INTERVALS.length - 1)]); d.kanjiSRS[chId][srsChar] = s; return d; }
+function srsMark(d, chId, chars, mode, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; (chars || []).forEach(function (c) { if (mode === "remove") { if (d.kanjiSRS[chId][c]) { d.kanjiSRS[chId][c].taught = false; d.kanjiSRS[chId][c].focus = false; } return; } var s = d.kanjiSRS[chId][c] || { box: 0, seen: 0, wrong: 0 }; s.taught = true; s.focus = (mode === "focus"); if (!s.due) s.due = date; d.kanjiSRS[chId][c] = s; }); return d; }
+function kanjiListDueCount(d, chId, date) { var list = (d.kanjiList && d.kanjiList[chId]) || []; return list.filter(function (k) { return isKanjiDue(k, date) && k.reading && k.reading.trim(); }).length; }
+function ensureSrsDay(d, chId, date) {
+  var ch = childById(chId); if (!ch) return [];
+  if (!d.kanjiSrsDay) d.kanjiSrsDay = {}; if (!d.kanjiSrsDay[chId]) d.kanjiSrsDay[chId] = {};
+  if (!d.kanjiSrsDay[chId][date]) {
+    var st = srsSettings(d, chId);
+    var room = Math.max(0, st.dailyCap - kanjiListDueCount(d, chId, date));
+    var arr = srsSelect(d, chId, ch, date, room);
+    var tset = knownKanjiSet(d, chId, ch);
+    var expanded = [];
+    arr.forEach(function (it) {
+      var toks = it.sentence ? tokenizeKanjiSentence(it.sentence, tset, { word: it.kanji, reading: it.reading }) : [];
+      var blanks = toks.filter(function (t) { return t.type === "blank"; });
+      var hasTarget = blanks.some(function (b) { return it.srsChar && b.chars.indexOf(it.srsChar) >= 0; });
+      if (!blanks.length || !hasTarget) {
+        var no = blanks.length ? (blanks[blanks.length - 1].no + 1) : 1;
+        var fb = { type: "blank", no: no, read: it.reading || "", word: it.kanji, chars: (it.srsChar ? [it.srsChar] : wordKanji(it.kanji)) };
+        toks = toks.concat([fb]); blanks = blanks.concat([fb]);
+      }
+      blanks.forEach(function (bt) {
+        bt.chars.forEach(function (c, ci) {
+          expanded.push({ id: it.id + "|" + bt.no + "|" + ci, srs: true, srsChar: c, kanji: c, word: bt.word, reading: bt.read, blankRead: bt.read, sentence: it.sentence, tokens: toks, focusNo: bt.no, srsGrade: it.srsGrade });
+        });
+      });
+    });
+    d.kanjiSrsDay[chId][date] = expanded;
+  }
+  return d.kanjiSrsDay[chId][date];
+}
+function srsDayPreview(data, chId, date) { var ch = childById(chId); if (!ch) return []; if (data.kanjiSrsDay && data.kanjiSrsDay[chId] && data.kanjiSrsDay[chId][date]) return data.kanjiSrsDay[chId][date]; var st = srsSettings(data, chId); var room = Math.max(0, st.dailyCap - kanjiListDueCount(data, chId, date)); return srsSelect(data, chId, ch, date, room); }
+function effKanjiList(data, chId, date) { var base = (data.kanjiList && data.kanjiList[chId]) || []; var srs = srsDayPreview(data, chId, date); return base.concat(srs || []); }
+// ===== 例文の多空欄化（2026-09-05）: 既習の語を空欄にし、漢字ごとに出題 =====
+var KANJI_READ_INDEX = {}; var KANJI_READ_MAXLEN = 1;
+function isKanjiC(c){ var o=c.charCodeAt(0); return o>=0x4E00&&o<=0x9FFF; }
+function wordKanji(w){ var a=[]; for(var i=0;i<w.length;i++) if(isKanjiC(w[i])) a.push(w[i]); return a; }
+function buildKanjiReadIndex(){ var idx={}; var mx=1; Object.keys(KANJI_CORPUS).forEach(function(g){ var m=KANJI_CORPUS[g]; Object.keys(m).forEach(function(ch){ m[ch].forEach(function(w){ var ks=wordKanji(w.word); if(!ks.length) return; (idx[w.reading]=idx[w.reading]||[]).push({word:w.word,chars:ks}); if(w.reading.length>mx) mx=w.reading.length; }); }); }); KANJI_READ_INDEX=idx; KANJI_READ_MAXLEN=mx; }
+function taughtSetOf(d,chId){ var s={}; var srs=(d.kanjiSRS&&d.kanjiSRS[chId])||{}; Object.keys(srs).forEach(function(c){ if(srs[c]&&srs[c].taught) s[c]=1; }); return s; }
+function knownKanjiSet(d,chId,ch){ var s=taughtSetOf(d,chId); var pr=srsPriorGrades(ch); pr.forEach(function(g){ var str=(typeof _KG!=="undefined"&&_KG[g-1])||""; for(var i=0;i<str.length;i++) s[str[i]]=1; }); return s; }
+function tokenizeKanjiSentence(sentence,taught,target){
+  var out=[]; var i=0; var n=sentence.length; var no=0;
+  while(i<n){
+    var matched=null;
+    for(var L=Math.min(KANJI_READ_MAXLEN,n-i); L>=1; L--){
+      var sub=sentence.substr(i,L); var words=KANJI_READ_INDEX[sub]; if(!words) continue;
+      var elig=words.filter(function(w){ return w.chars.length>0 && w.chars.every(function(c){ return taught[c]; }); });
+      if(!elig.length) continue;
+      var distinct={}; elig.forEach(function(w){ distinct[w.word]=w; }); var keys=Object.keys(distinct);
+      var isTarget=!!(target&&sub===target.reading); var chosen=null;
+      if(keys.length===1) chosen=distinct[keys[0]]; else if(isTarget&&distinct[target.word]) chosen=distinct[target.word];
+      if(!chosen) continue;
+      if(L<2 && !(isTarget&&chosen.word===target.word)) continue;
+      matched={read:sub,word:chosen.word,chars:chosen.chars,len:L}; break;
+    }
+    if(matched){ no++; out.push({type:"blank",no:no,read:matched.read,word:matched.word,chars:matched.chars}); i+=matched.len; }
+    else { if(out.length&&out[out.length-1].type==="kana") out[out.length-1].text+=sentence[i]; else out.push({type:"kana",text:sentence[i]}); i++; }
+  }
+  return out;
+}
+function renderKanjiSentence(tokens, ch, focusNo, showAnswer){
+  return (tokens||[]).map(function(t,i){
+    if(t.type==="kana") return <span key={i}>{t.text}</span>;
+    var isF=t.no===focusNo;
+    if(showAnswer) return <span key={i} style={{ color: isF?ch.color:"#555", fontWeight:900, borderBottom:"2px solid "+(isF?ch.color:"#ccc"), padding:"0 2px", margin:"0 1px", background:isF?(ch.colorLight||"#eef"):"transparent", borderRadius:isF?4:0 }}>{t.word}<sub style={{ fontSize:"0.55em", color:"#bbb", fontWeight:400 }}>{t.no}</sub></span>;
+    return <span key={i} style={{ display:"inline-block", minWidth:30, textAlign:"center", margin:"0 2px", borderBottom:"3px solid "+(isF?ch.color:"#ccc"), color:isF?ch.color:"#ccc", fontWeight:900, background:isF?(ch.colorLight||"#eef"):"transparent", borderRadius:isF?4:0 }}>{circledNum(t.no-1)}</span>;
+  });
+}
 function freezeKanjiQ(d, chId, date) {
   if (!d.kanjiTestFrozen) d.kanjiTestFrozen = {};
   if (!d.kanjiTestFrozen[chId]) d.kanjiTestFrozen[chId] = {};
+  var _srsQ = ensureSrsDay(d, chId, date);
   if (!d.kanjiTestFrozen[chId][date] || !d.kanjiTestFrozen[chId][date].length) {
-    var q = kanjiDailyQueue((d.kanjiList && d.kanjiList[chId]) || [], date);
+    var listQ = kanjiDailyQueue((d.kanjiList && d.kanjiList[chId]) || [], date);
+    var q = listQ.concat(_srsQ || []);
     d.kanjiTestFrozen[chId][date] = q.map(function (k) { return k.id; });
   }
   return d.kanjiTestFrozen[chId][date];
 }
 function readKanjiQ(data, chId, date) {
-  var list = (data.kanjiList && data.kanjiList[chId]) || [];
+  var list = effKanjiList(data, chId, date);
   var ids = (data.kanjiTestFrozen && data.kanjiTestFrozen[chId] && data.kanjiTestFrozen[chId][date]) || null;
   if (ids && ids.length) {
     var byId = {};
@@ -933,6 +1040,7 @@ function WeekPlanCard(p) {
     );
   };
   var rkq = function (item) {
+    if (item && item.tokens) { return (<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 10 }}><Kid t={"文を漢字で書こう！（色の□を書いてね）"} ch={ch} data={data} on={!isP} /></div><div style={{ fontSize: 20, lineHeight: 2.4 }}>{renderKanjiSentence(item.tokens, ch, item.focusNo, false)}</div><div style={{ fontSize: 12, color: "#888", marginTop: 10 }}>【{item.focusNo}】＝「{item.blankRead}」</div></div>); }
     var reading = (item.reading || "").trim();
     var sentence = (item.sentence || "").trim();
     if (sentence && reading && sentence.indexOf(reading) >= 0) {
@@ -3901,13 +4009,14 @@ function KanjiTab(p) {
       var dt = new Date(NOW); dt.setDate(dt.getDate() - dd);
       var ds = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
       var graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds] && data.todayChecks[ch.id][ds]["kanji_graded"]);
-      if (!graded && kanjiDailyQueue(allKanji, ds).length > 0) return ds;
+      if (!graded && kanjiDailyQueue(effKanjiList(data, ch.id, ds), ds).length > 0) return ds;
     }
     return TD;
   });
   const [editId, setEditId] = useState(null);
   const [editReading, setEditReading] = useState("");
   const [editSentence, setEditSentence] = useState("");
+  const [srsMode, setSrsMode] = useState("focus");
 
   var startEdit = function (k) {
     setEditId(k.id);
@@ -3973,7 +4082,7 @@ function KanjiTab(p) {
     if (!d.kanjiTestResults) d.kanjiTestResults = {};
     if (!d.kanjiTestResults[ch.id]) d.kanjiTestResults[ch.id] = {};
     d.kanjiTestResults[ch.id][gd] = {};
-    ts.queue.forEach(function (q) { d.kanjiTestResults[ch.id][gd][q.id] = !!newResults[q.id]; });
+    ts.queue.forEach(function (q) { d.kanjiTestResults[ch.id][gd][q.id] = !!newResults[q.id]; if (q.srs && q.srsChar) srsApply(d, ch.id, q.srsChar, !!newResults[q.id], gd); });
     ensurePts(d, ch.id);
     var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
     d.points[ch.id].balance += ptAmt;
@@ -3992,6 +4101,7 @@ function KanjiTab(p) {
 
   // 例文中の「読み」部分をハイライト（下線＋色）して出題表示
   var renderQuestion = function (item) {
+    if (item && item.tokens) { return (<div style={{ textAlign: "center" }}><div style={{ fontSize: 13, color: "#aaa", marginBottom: 12 }}>色のついた【{item.focusNo}】の漢字が書けたか見てください</div><div style={{ fontSize: 22, lineHeight: 2.2 }}>{renderKanjiSentence(item.tokens, ch, item.focusNo, true)}</div><div style={{ fontSize: 12, color: "#888", marginTop: 10 }}>【{item.focusNo}】「{item.word}」の <b style={{ color: ch.color, fontSize: 20 }}>{item.kanji}</b></div></div>); }
     var reading = (item.reading || "").trim();
     var sentence = (item.sentence || "").trim();
     // 例文あり・かつ例文に読みが含まれる場合 → 例文を前後に分割してハイライト
@@ -4035,11 +4145,11 @@ function KanjiTab(p) {
   for (var _gd = 0; _gd < 7; _gd++) {
     var _dt = new Date(NOW); _dt.setDate(_dt.getDate() - _gd);
     var _ds = _dt.getFullYear() + "-" + String(_dt.getMonth() + 1).padStart(2, "0") + "-" + String(_dt.getDate()).padStart(2, "0");
-    var _q = kanjiDailyQueue(allKanji, _ds);
+    var _q = kanjiDailyQueue(effKanjiList(data, ch.id, _ds), _ds);
     var _graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_ds] && data.todayChecks[ch.id][_ds]["kanji_graded"]);
     if (_q.length > 0 || _graded) gradeDays.push({ date: _ds, label: _gd === 0 ? "今日" : _gd === 1 ? "きのう" : (_dt.getMonth() + 1) + "/" + _dt.getDate(), count: _q.length, graded: _graded });
   }
-  var selQueue = kanjiDailyQueue(allKanji, gradeDate);
+  var selQueue = kanjiDailyQueue(effKanjiList(data, ch.id, gradeDate), gradeDate);
   var selCount = selQueue.length;
   var selDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][gradeDate] && data.todayChecks[ch.id][gradeDate]["kanji_graded"]);
   var noReadingCount = active.filter(function (k) { return !k.reading || !k.reading.trim(); }).length;
@@ -4065,6 +4175,49 @@ function KanjiTab(p) {
         )}
       </div>
 
+{(function () {
+        var cg = srsCurGrade(ch);
+        var chars = ((typeof _KG !== "undefined" && _KG[cg - 1]) || "").split("");
+        var srs = (data.kanjiSRS && data.kanjiSRS[ch.id]) || {};
+        var st = srsSettings(data, ch.id);
+        var hasCorpus = !!KANJI_CORPUS[cg];
+        var nTaught = 0, nFocus = 0, nMaster = 0;
+        chars.forEach(function (c) { var s = srs[c]; if (s && s.taught) { nTaught++; if (s.focus) nFocus++; if ((s.box || 0) >= SRS_MASTER_BOX) nMaster++; } });
+        function upd(fn) { var d = clone(data); fn(d); save(d); }
+        function tap(c) { upd(function (d) { srsMark(d, ch.id, [c], srsMode, TD); }); }
+        function setStv(k, v) { upd(function (d) { if (!d.kanjiSettings) d.kanjiSettings = {}; if (!d.kanjiSettings[ch.id]) d.kanjiSettings[ch.id] = {}; d.kanjiSettings[ch.id][k] = v; }); }
+        var modes = [{ k: "focus", l: "＋今習った(集中)", c: ch.color }, { k: "taught", l: "＋既習にする", c: "#7E57C2" }, { k: "remove", l: "はずす", c: "#bbb" }];
+        return (
+          <div style={S.card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ ...S.cardTitle, margin: 0 }}>🈶 既習漢字テスト（{cg}年）</div>
+              <button onClick={function () { setStv("on", !st.on); }} style={{ ...S.smBtn, background: st.on ? "#4CAF50" : "#e0e0e0", color: st.on ? "#fff" : "#888" }}>{st.on ? "ON" : "OFF"}</button>
+            </div>
+            {!hasCorpus && <div style={{ fontSize: 11, color: "#FF9800", background: "#FFF3E0", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>この学年の熟語データはまだ準備中です（登録され次第、自動で出題されます）。</div>}
+            <div style={{ fontSize: 12, color: "#666", marginBottom: 8, lineHeight: 1.7 }}>習った <b style={{ color: ch.color }}>{nTaught}</b>字 ／ 集中 <b style={{ color: ch.color }}>{nFocus}</b>字 ／ 定着 <b style={{ color: "#2E7D32" }}>{nMaster}</b>字（全{chars.length}字）</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8, fontSize: 12, color: "#555" }}>
+              <span>1日<input type="number" value={st.dailyCap} onChange={function (e) { setStv("dailyCap", Math.max(1, parseInt(e.target.value) || 1)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />問まで</span>
+              <span>新しく<input type="number" value={st.newPerDay} onChange={function (e) { setStv("newPerDay", Math.max(0, parseInt(e.target.value) || 0)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />字/日</span>
+              <button onClick={function () { setStv("mixPrior", !st.mixPrior); }} style={{ ...S.smBtn, background: st.mixPrior ? ch.color : "#eee", color: st.mixPrior ? "#fff" : "#888", fontSize: 11 }}>前学年も混ぜる {st.mixPrior ? "ON" : "OFF"}</button>
+            </div>
+            <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>下のボタンで操作を選び、漢字をタップ：</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              {modes.map(function (m) { return <button key={m.k} onClick={function () { setSrsMode(m.k); }} style={{ ...S.smBtn, background: srsMode === m.k ? m.c : "#f0f0f0", color: srsMode === m.k ? "#fff" : "#666", fontSize: 11 }}>{m.l}</button>; })}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 220, overflowY: "auto", padding: 4, background: "#fafafa", borderRadius: 8 }}>
+              {chars.map(function (c) {
+                var s = srs[c]; var taught = !!(s && s.taught); var focus = !!(s && s.focus); var master = !!(s && (s.box || 0) >= SRS_MASTER_BOX);
+                var bg = "#f0f0f0", col = "#bbb", bd = "1px solid #e5e5e5";
+                if (master) { bg = "#E8F5E9"; col = "#2E7D32"; bd = "1px solid #A5D6A7"; }
+                else if (focus) { bg = ch.color; col = "#fff"; bd = "1px solid " + ch.color; }
+                else if (taught) { bg = ch.colorLight || "#EDE7F6"; col = ch.color; bd = "1px solid " + ch.color; }
+                return <button key={c} onClick={function () { tap(c); }} style={{ width: 30, height: 30, borderRadius: 6, border: bd, background: bg, color: col, fontSize: 15, fontWeight: 700, cursor: "pointer", padding: 0 }} title={master ? "定着" : focus ? "集中" : taught ? "習った" : "未"}>{c}</button>;
+              })}
+            </div>
+            <div style={{ fontSize: 10, color: "#aaa", marginTop: 6, lineHeight: 1.6 }}>グレー=未 ／ <span style={{ color: ch.color, fontWeight: 700 }}>色つき=集中(今の単元)</span> ／ うすい=習った ／ <span style={{ color: "#2E7D32", fontWeight: 700 }}>緑=定着</span>。テストは「今日のやること」の🎯漢字テストに合流します。</div>
+          </div>
+        );
+      })()}
       {/* 間違えた漢字リスト */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
