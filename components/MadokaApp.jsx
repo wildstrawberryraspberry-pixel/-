@@ -138,6 +138,7 @@ export default function App() {
         if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
         // 2026-08-22 チャレンジを回ごと管理へ移行：doneNums 未設定なら連番[1..doneUnits]で初期化
         ["daigo", "eishi", "yuzuki", "yukino"].forEach(function (cid) { var arr = (p.workbooks && p.workbooks[cid]) || []; arr.forEach(function (w) { if (w && w.type === "challenge" && !(w.doneNums && w.doneNums.length !== undefined)) { var a = []; for (var i = 1; i <= (w.doneUnits || 0); i++) a.push(i); w.doneNums = a; } }); });
+        ["daigo", "eishi", "yuzuki", "yukino"].forEach(function (cid) { var arrP = (p.workbooks && p.workbooks[cid]) || []; arrP.forEach(function (w) { if (w && w.type === "pages" && !w.deferred) w.deferred = []; }); });
         return p;
       }
     } catch (e) { /* ignore */ }
@@ -2525,6 +2526,7 @@ function TasksTab(p) {
   );
 }
 // ═══ WORKBOOKS TAB ═══
+function deferCount(wb){var s=0;(wb.deferred||[]).forEach(function(r){s+=(r.to-r.from+1);});return s;}
 function WorkbooksTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
@@ -2544,6 +2546,8 @@ function WorkbooksTab(p) {
   // 2026-05-19: ページ型問題集の donePages を直接編集（誤って進めた分の訂正用）
   const [editPagesId, setEditPagesId] = useState(null);
   const [editPagesVal, setEditPagesVal] = useState("");
+  const [jumpId, setJumpId] = useState(null);
+  const [jumpVal, setJumpVal] = useState("");
   // 2026-05-19: チャレンジ型問題集の doneUnits / testDone を直接編集
   const [editUnitsId, setEditUnitsId] = useState(null);
   const [editUnitsVal, setEditUnitsVal] = useState("");
@@ -2596,6 +2600,28 @@ function WorkbooksTab(p) {
     }
     save(d);
     cancelEditPages();
+  };
+  var openJump = function (wb) { setJumpId(wb.id); setJumpVal(""); };
+  var doJump = function (wbId) {
+    var P = parseInt(jumpVal); var d = clone(data);
+    var wb = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
+    if (!wb) { setJumpId(null); return; }
+    var front = (wb.donePages || 0) + 1;
+    if (isNaN(P) || P <= front || P > (wb.totalPages || 0) + 1) { setJumpId(null); return; }
+    if (!wb.deferred) wb.deferred = [];
+    wb.deferred.push({ from: front, to: P - 1 });
+    wb.donePages = P - 1;
+    save(d); setJumpId(null); setJumpVal("");
+  };
+  var markDeferred = function (wbId, ri, pages) {
+    var d = clone(data);
+    var wb = d.workbooks[ch.id].find(function (w) { return w.id === wbId; });
+    if (!wb || !wb.deferred || !wb.deferred[ri]) return;
+    var r = wb.deferred[ri]; var n = Math.min(pages, r.to - r.from + 1); r.from += n;
+    if (r.from > r.to) wb.deferred.splice(ri, 1);
+    ensurePts(d, ch.id); d.points[ch.id].balance += 1;
+    d.points[ch.id].history.push({ type: "earn", amount: 1, reason: wb.name + " 積み残し" + n + "p完了", date: TD, id: "wpd" + Date.now() });
+    save(d);
   };
   var markUnit = function (wbId) {
     var wb = wbs.find(function (w) { return w.id === wbId; });
@@ -2760,7 +2786,9 @@ function WorkbooksTab(p) {
         {pageBooks.length > 0 ? pageBooks.map(function (wb) {
           var total = wb.totalPages || 0;
           var done = wb.donePages || 0;
-          var pct = total > 0 ? Math.round((done / total) * 100) : 0;
+          var dc = deferCount(wb);
+          var realDone = Math.max(0, done - dc);
+          var pct = total > 0 ? Math.round((realDone / total) * 100) : 0;
           return (
             <div key={wb.id} style={{ padding: "10px 0", borderBottom: "1px solid #f3f3f3" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2769,7 +2797,7 @@ function WorkbooksTab(p) {
                     {wb.name}
                     {wb.dailyPages && <span style={{ marginLeft: 6, fontSize: 9, background: "#E3F2FD", color: "#1565C0", padding: "1px 5px", borderRadius: 6 }}>毎日{wb.dailyPages}p</span>}
                   </div>
-                  <div style={{ fontSize: 11, color: "#aaa" }}>{wb.subject}・{done}/{total}p（残{total - done}p）</div>
+                  <div style={{ fontSize: 11, color: "#aaa" }}>{wb.subject}・やった {realDone}/{total}p{dc > 0 ? "（あとでやる " + dc + "p）" : ""}</div>
                   {wb.note && <div style={{ fontSize: 10, color: "#FF9800", marginTop: 2 }}>📝 {wb.note}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 4 }}>
@@ -2779,6 +2807,31 @@ function WorkbooksTab(p) {
                 </div>
               </div>
               <div style={{ ...S.progBar, marginTop: 6 }}><div style={{ height: "100%", borderRadius: 3, background: pct >= 80 ? "#4CAF50" : ch.color, width: pct + "%" }} /></div>
+              {isP && <div style={{ marginTop: 6 }}><button onClick={function () { openJump(wb); }} style={{ ...S.smBtn, background: "#FFF3E0", color: "#E65100", fontSize: 10 }} title="今学校でやっているページへ進める">📍 今のページへ</button></div>}
+              {isP && jumpId === wb.id && (
+                <div style={{ marginTop: 6, padding: 8, background: "#FFF3E0", borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: "#E65100", marginBottom: 4, lineHeight: 1.5 }}>今、学校でやっているページ番号を入れてください。手前のまだやっていないページは「あとでやる」に退避します。</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: "#666" }}>今のページ</span>
+                    <input type="number" value={jumpVal} onChange={function (e) { setJumpVal(e.target.value); }} placeholder={String(done + 1)} min={done + 2} max={total} style={{ ...S.input, width: 64, textAlign: "center", padding: "4px 6px" }} />
+                    <button onClick={function () { doJump(wb.id); }} style={{ ...S.smBtn, background: "#FF9800", color: "#fff", fontSize: 11 }}>ジャンプ</button>
+                    <button onClick={function () { setJumpId(null); }} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>×</button>
+                  </div>
+                </div>
+              )}
+              {(wb.deferred || []).length > 0 && (
+                <div style={{ marginTop: 6, padding: 8, background: "#FBE9E7", borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#D84315", marginBottom: 6 }}>🕒 あとでやる（積み残し）</div>
+                  {(wb.deferred || []).map(function (r, ri) {
+                    return (<div key={ri} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, flex: 1 }}>P{r.from}〜{r.to}（{r.to - r.from + 1}ページ）</span>
+                      {isP && <button onClick={function () { markDeferred(wb.id, ri, 1); }} style={{ ...S.smBtn, background: "#eee", color: "#333", fontSize: 10 }}>+1p</button>}
+                      {isP && <button onClick={function () { markDeferred(wb.id, ri, wb.dailyPages || 2); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", fontSize: 10 }}>+{wb.dailyPages || 2}p できた</button>}
+                    </div>);
+                  })}
+                  <div style={{ fontSize: 10, color: "#999", marginTop: 2 }}>子どもが取り組んだら「できた」を押すと減っていきます。</div>
+                </div>
+              )}
               {isP && editPagesId === wb.id && (
                 <div style={{ marginTop: 8, padding: 8, background: "#FFFDE7", borderRadius: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>完了ページ:</span>
