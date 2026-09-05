@@ -422,6 +422,7 @@ function wordKanji(w){ var a=[]; for(var i=0;i<w.length;i++) if(isKanjiC(w[i])) 
 function buildKanjiReadIndex(){ var idx={}; var mx=1; Object.keys(KANJI_CORPUS).forEach(function(g){ var m=KANJI_CORPUS[g]; Object.keys(m).forEach(function(ch){ m[ch].forEach(function(w){ var ks=wordKanji(w.word); if(!ks.length) return; (idx[w.reading]=idx[w.reading]||[]).push({word:w.word,chars:ks}); if(w.reading.length>mx) mx=w.reading.length; }); }); }); KANJI_READ_INDEX=idx; KANJI_READ_MAXLEN=mx; }
 function taughtSetOf(d,chId){ var s={}; var srs=(d.kanjiSRS&&d.kanjiSRS[chId])||{}; Object.keys(srs).forEach(function(c){ if(srs[c]&&srs[c].taught) s[c]=1; }); return s; }
 function knownKanjiSet(d,chId,ch){ var s=taughtSetOf(d,chId); var pr=srsPriorGrades(ch); pr.forEach(function(g){ var str=(typeof _KG!=="undefined"&&_KG[g-1])||""; for(var i=0;i<str.length;i++) s[str[i]]=1; }); return s; }
+function kanjiSortKey(c){ if(typeof KCHAR!=="undefined"&&KCHAR[c])return KCHAR[c]; var g; for(g in KANJI_CORPUS){ if(KANJI_CORPUS[g]&&KANJI_CORPUS[g][c]&&KANJI_CORPUS[g][c][0])return KANJI_CORPUS[g][c][0].reading; } return c; }
 function tokenizeKanjiSentence(sentence,taught,target){
   var out=[]; var i=0; var n=sentence.length; var no=0;
   while(i<n){
@@ -4017,6 +4018,8 @@ function KanjiTab(p) {
   const [editReading, setEditReading] = useState("");
   const [editSentence, setEditSentence] = useState("");
   const [srsMode, setSrsMode] = useState("focus");
+  const [srsSort, setSrsSort] = useState("kana");
+  const [srsInput, setSrsInput] = useState("");
 
   var startEdit = function (k) {
     setEditId(k.id);
@@ -4178,6 +4181,7 @@ function KanjiTab(p) {
 {(function () {
         var cg = srsCurGrade(ch);
         var chars = ((typeof _KG !== "undefined" && _KG[cg - 1]) || "").split("");
+        if (srsSort === "kana") chars = chars.slice().sort(function (a, b) { return kanjiSortKey(a).localeCompare(kanjiSortKey(b), "ja"); });
         var srs = (data.kanjiSRS && data.kanjiSRS[ch.id]) || {};
         var st = srsSettings(data, ch.id);
         var hasCorpus = !!KANJI_CORPUS[cg];
@@ -4203,6 +4207,18 @@ function KanjiTab(p) {
             <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>下のボタンで操作を選び、漢字をタップ：</div>
             <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
               {modes.map(function (m) { return <button key={m.k} onClick={function () { setSrsMode(m.k); }} style={{ ...S.smBtn, background: srsMode === m.k ? m.c : "#f0f0f0", color: srsMode === m.k ? "#fff" : "#666", fontSize: 11 }}>{m.l}</button>; })}
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: "#888" }}>並び順</span>
+              <button onClick={function () { setSrsSort("kana"); }} style={{ ...S.smBtn, background: srsSort === "kana" ? ch.color : "#f0f0f0", color: srsSort === "kana" ? "#fff" : "#666", fontSize: 11 }}>あいうえお順</button>
+              <button onClick={function () { setSrsSort("kg"); }} style={{ ...S.smBtn, background: srsSort === "kg" ? ch.color : "#f0f0f0", color: srsSort === "kg" ? "#fff" : "#666", fontSize: 11 }}>教科書の配当順</button>
+            </div>
+            <div style={{ marginBottom: 8, background: "#F3E5F5", borderRadius: 8, padding: 8 }}>
+              <div style={{ fontSize: 11, color: "#7B1FA2", marginBottom: 4 }}>探さずに入力でまとめて選ぶ（例：楽 音 聞）。上で選んだ操作（{modes.find(function (m) { return m.k === srsMode; }).l}）が適用されます。</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input value={srsInput} onChange={function (e) { setSrsInput(e.target.value); }} placeholder="漢字を入力（スペース区切り可）" style={{ ...S.input, flex: 1 }} />
+                <button onClick={function () { var cs = (srsInput || "").split("").filter(function (x) { return isKanjiC(x); }); if (cs.length) upd(function (d) { srsMark(d, ch.id, cs, srsMode, TD); }); setSrsInput(""); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>適用</button>
+              </div>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 220, overflowY: "auto", padding: 4, background: "#fafafa", borderRadius: 8 }}>
               {chars.map(function (c) {
