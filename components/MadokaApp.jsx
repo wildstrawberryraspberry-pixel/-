@@ -471,28 +471,34 @@ async function loadKanjiCorpus() {
 function srsYmd(dt) { return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"); }
 function srsAddDays(dateStr, n) { var p = dateStr.split("-"); var dt = new Date(+p[0], +p[1] - 1, +p[2]); dt.setDate(dt.getDate() + n); return srsYmd(dt); }
 function srsPick(arr, seedStr) { if (!arr || !arr.length) return null; var h = 2166136261; for (var i = 0; i < seedStr.length; i++) { h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619); } return arr[(h >>> 0) % arr.length]; }
-function srsSettings(d, chId) { var def = { on: true, dailyCap: (chId === "yuzuki" ? 6 : 8), newPerDay: (chId === "yuzuki" ? 3 : 5), mixPrior: true }; var s = (d.kanjiSettings && d.kanjiSettings[chId]) || {}; return Object.assign({}, def, s); }
+function srsSettings(d, chId) { var def = { on: true, dailyCap: (chId === "yuzuki" ? 6 : 8), newPerDay: (chId === "yuzuki" ? 3 : 5), mixPrior: true, noteOn: true, notePerDay: (chId === "yuzuki" ? 5 : 7) }; var s = (d.kanjiSettings && d.kanjiSettings[chId]) || {}; return Object.assign({}, def, s); }
 function srsCurGrade(ch) { return gradeAllowed(ch) + 1; }
 function srsPriorGrades(ch) { var a = []; for (var g = 1; g <= gradeAllowed(ch); g++) a.push(g); return a; }
 function childById(id) { for (var i = 0; i < CHILDREN.length; i++) if (CHILDREN[i].id === id) return CHILDREN[i]; return null; }
-function srsSelect(d, chId, ch, date, roomLeft) {
+function srsSelect(d, chId, ch, date, roomLeft, exclude) {
   var st = srsSettings(d, chId); if (!st.on) return [];
   var srs = (d.kanjiSRS && d.kanjiSRS[chId]) || {};
   var cap = Math.max(0, roomLeft != null ? roomLeft : st.dailyCap); if (cap <= 0) return [];
   var curGrade = srsCurGrade(ch); var priors = srsPriorGrades(ch);
-  function collect(grade, isCur, allowUntaught) { var out = []; var chars = (KANJI_CORPUS[grade] && Object.keys(KANJI_CORPUS[grade])) || []; chars.forEach(function (c) { var s = srs[c]; if (!s) { if (!allowUntaught) return; s = { box: 0, seen: 0, wrong: 0 }; } else if (!s.taught && !allowUntaught) { return; } if ((s.box || 0) >= SRS_MASTER_BOX) { if (!s.due || s.due > date) return; } else { if (s.due && s.due > date) return; } out.push({ char: c, grade: grade, isCur: isCur, s: s }); }); return out; }
+  function collect(grade, isCur, allowUntaught, ignoreDue) { var out = []; var chars = (KANJI_CORPUS[grade] && Object.keys(KANJI_CORPUS[grade])) || []; chars.forEach(function (c) { if (exclude && exclude[c]) return; var s = srs[c]; if (!s) { if (!allowUntaught) return; s = { box: 0, seen: 0, wrong: 0 }; } else if (!s.taught && !allowUntaught) { return; } if (!ignoreDue) { if ((s.box || 0) >= SRS_MASTER_BOX) { if (!s.due || s.due > date) return; } else { if (s.due && s.due > date) return; } } out.push({ char: c, grade: grade, isCur: isCur, s: s }); }); return out; }
   function sortTier(a, b) { if ((!!b.s.focus) - (!!a.s.focus)) return (!!b.s.focus) - (!!a.s.focus); if ((b.s.wrong || 0) !== (a.s.wrong || 0)) return (b.s.wrong || 0) - (a.s.wrong || 0); if ((a.s.box || 0) !== (b.s.box || 0)) return (a.s.box || 0) - (b.s.box || 0); return (a.s.due || "").localeCompare(b.s.due || ""); }
-  var current = collect(curGrade, true);
+  var chosen = []; var i;
+  // ① 今の単元（集中）＝最優先：due・newPerDay無視、定着(box5)未満のみ、毎日いちばん上に出す
+  var focusT = collect(curGrade, true, false, true).filter(function (x) { return x.s.focus && (x.s.box || 0) < SRS_MASTER_BOX; }).sort(sortTier);
+  for (i = 0; i < focusT.length && chosen.length < cap; i++) chosen.push(focusT[i]);
+  var picked = {}; chosen.forEach(function (x) { picked[x.char] = 1; });
+  var current = collect(curGrade, true).filter(function (x) { return !picked[x.char]; });
   var curReview = current.filter(function (x) { return (x.s.seen || 0) > 0; }).sort(sortTier);
   var curNew = current.filter(function (x) { return (x.s.seen || 0) === 0; }).sort(sortTier);
-  var chosen = []; var i;
   for (i = 0; i < curReview.length && chosen.length < cap; i++) chosen.push(curReview[i]);
   var newCount = 0; for (i = 0; i < curNew.length && chosen.length < cap && newCount < st.newPerDay; i++) { chosen.push(curNew[i]); newCount++; }
   var heldBack = curNew.length > newCount;
   if (st.mixPrior && chosen.length < cap && !heldBack) { var prior = []; priors.forEach(function (g) { prior = prior.concat(collect(g, false, true)); }); var pReview = prior.filter(function (x) { return (x.s.seen || 0) > 0; }).sort(sortTier); var pNew = prior.filter(function (x) { return (x.s.seen || 0) === 0; }).sort(sortTier); for (i = 0; i < pReview.length && chosen.length < cap; i++) chosen.push(pReview[i]); var pBud = Math.max(0, st.newPerDay - newCount); for (i = 0; i < pNew.length && chosen.length < cap && pBud > 0; i++) { chosen.push(pNew[i]); pBud--; } }
   return chosen.map(function (x) { var words = (KANJI_CORPUS[x.grade] && KANJI_CORPUS[x.grade][x.char]) || []; var w = srsPick(words, date + ":" + x.char + ":" + (x.s.seen || 0)) || { word: x.char, reading: "", type: "" }; return { id: "srs:" + chId + ":" + x.char + ":" + date, kanji: w.word, reading: w.reading || "", sentence: w.example || "", srs: true, srsChar: x.char, srsType: w.type || "", srsGrade: x.grade }; });
 }
-function srsApply(d, chId, srsChar, correct, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][srsChar] || { box: 0, taught: true, focus: true, seen: 0, wrong: 0 }; s.seen = (s.seen || 0) + 1; if (correct) { s.box = Math.min(SRS_MASTER_BOX, (s.box || 0) + 1); if (s.box >= 3) s.focus = false; } else { s.box = 1; s.wrong = (s.wrong || 0) + 1; } s.due = srsAddDays(date, SRS_INTERVALS[Math.min(s.box, SRS_INTERVALS.length - 1)]); d.kanjiSRS[chId][srsChar] = s; return d; }
+function srsApply(d, chId, srsChar, correct, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][srsChar] || { box: 0, taught: true, focus: true, seen: 0, wrong: 0 }; s.seen = (s.seen || 0) + 1; if (correct) { s.box = Math.min(SRS_MASTER_BOX, (s.box || 0) + 1); if (s.box >= SRS_MASTER_BOX) s.focus = false; } else { s.box = 1; s.wrong = (s.wrong || 0) + 1; } s.due = srsAddDays(date, SRS_INTERVALS[Math.min(s.box, SRS_INTERVALS.length - 1)]); d.kanjiSRS[chId][srsChar] = s; return d; }
+function srsGraduate(d, chId, char, date) { if (!isKanjiC(char)) return d; if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][char] || { box: 0, seen: 0, wrong: 0 }; s.taught = true; s.focus = false; s.box = 2; s.seen = Math.max(1, s.seen || 0); s.due = srsAddDays(date, SRS_INTERVALS[2]); d.kanjiSRS[chId][char] = s; return d; }
+function activeKanjiListSet(d, chId) { var s = {}; var list = (d.kanjiList && d.kanjiList[chId]) || []; list.forEach(function (k) { if (!k.completed) { wordKanji(k.kanji || "").forEach(function (c) { s[c] = 1; }); } }); return s; }
 function srsMark(d, chId, chars, mode, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; (chars || []).forEach(function (c) { if (mode === "remove") { if (d.kanjiSRS[chId][c]) { d.kanjiSRS[chId][c].taught = false; d.kanjiSRS[chId][c].focus = false; } return; } var s = d.kanjiSRS[chId][c] || { box: 0, seen: 0, wrong: 0 }; s.taught = true; s.focus = (mode === "focus"); if (!s.due) s.due = date; d.kanjiSRS[chId][c] = s; }); return d; }
 function kanjiListDueCount(d, chId, date) { var list = (d.kanjiList && d.kanjiList[chId]) || []; return list.filter(function (k) { return isKanjiDue(k, date) && k.reading && k.reading.trim(); }).length; }
 function ensureSrsDay(d, chId, date) {
@@ -501,7 +507,7 @@ function ensureSrsDay(d, chId, date) {
   if (!d.kanjiSrsDay[chId][date]) {
     var st = srsSettings(d, chId);
     var room = Math.max(0, st.dailyCap - kanjiListDueCount(d, chId, date));
-    var arr = srsSelect(d, chId, ch, date, room);
+    var arr = srsSelect(d, chId, ch, date, room, activeKanjiListSet(d, chId));
     var tset = knownKanjiSet(d, chId, ch);
     var expanded = [];
     arr.forEach(function (it) {
@@ -523,8 +529,48 @@ function ensureSrsDay(d, chId, date) {
   }
   return d.kanjiSrsDay[chId][date];
 }
-function srsDayPreview(data, chId, date) { var ch = childById(chId); if (!ch) return []; if (data.kanjiSrsDay && data.kanjiSrsDay[chId] && data.kanjiSrsDay[chId][date]) return data.kanjiSrsDay[chId][date]; var st = srsSettings(data, chId); var room = Math.max(0, st.dailyCap - kanjiListDueCount(data, chId, date)); return srsSelect(data, chId, ch, date, room); }
+function srsDayPreview(data, chId, date) { var ch = childById(chId); if (!ch) return []; if (data.kanjiSrsDay && data.kanjiSrsDay[chId] && data.kanjiSrsDay[chId][date]) return data.kanjiSrsDay[chId][date]; var st = srsSettings(data, chId); var room = Math.max(0, st.dailyCap - kanjiListDueCount(data, chId, date)); return srsSelect(data, chId, ch, date, room, activeKanjiListSet(data, chId)); }
 function effKanjiList(data, chId, date) { var base = (data.kanjiList && data.kanjiList[chId]) || []; var srs = srsDayPreview(data, chId, date); return base.concat(srs || []); }
+// ===== 苦手漢字ノート（2026-09-07）: 何度も間違えた字を毎日ノートに一行書く練習。テストとは別。=====
+function pickWordForChar(ch, char, seed, known) {
+  var grades = [srsCurGrade(ch)].concat(srsPriorGrades(ch));
+  var all = [];
+  for (var i = 0; i < grades.length; i++) { var g = grades[i]; var ws = KANJI_CORPUS[g] && KANJI_CORPUS[g][char]; if (ws && ws.length) all = all.concat(ws); }
+  if (!all.length) return { word: char, reading: "", sentence: "" };
+  function allKnown(w) { return wordKanji(w).every(function (k) { return k === char || (known && known[k]); }); }
+  // ティア: 3=2字ちょうどの熟語(相手も既習) / 2=2字以上の熟語(相手も既習) / 1=それ以外
+  function tier(w) { var kc = wordKanji(w.word).length; if (kc >= 2 && w.word.length === 2 && allKnown(w.word)) return 3; if (kc >= 2 && allKnown(w.word)) return 2; return 1; }
+  var best = 0; all.forEach(function (w) { var t = tier(w); if (t > best) best = t; });
+  if (best <= 1) {
+    // 既習の2字熟語が無い → 一文字（優珠綺の「海」など）。単字の語があれば読みも付ける。
+    var singles = all.filter(function (w) { return w.word === char; });
+    if (singles.length) { var sp = srsPick(singles, seed + ":" + char) || singles[0]; return { word: char, reading: sp.reading || "", sentence: sp.example || "" }; }
+    return { word: char, reading: "", sentence: "" };
+  }
+  var pool = all.filter(function (w) { return tier(w) === best; });
+  var wpk = srsPick(pool, seed + ":" + char) || pool[0];
+  return { word: wpk.word, reading: wpk.reading || "", sentence: wpk.example || "" };
+}
+function kanjiWeakList(data, chId, date, n) {
+  var ch = childById(chId); if (!ch) return [];
+  var cand = {};
+  function bump(c, score) { if (!isKanjiC(c)) return; if (cand[c] == null || score > cand[c]) cand[c] = score; }
+  // ① 間違えた漢字リスト（未定着）＝苦手として最優先
+  var list = (data.kanjiList && data.kanjiList[chId]) || [];
+  list.forEach(function (k) { if (k.completed || !isKanjiC(k.kanji)) return; bump(k.kanji, 200 + (k.wrong || 0) * 50 - (k.correctStreak || 0)); });
+  // ② SRSで間違えた/箱が低い既習字
+  var srs = (data.kanjiSRS && data.kanjiSRS[chId]) || {};
+  Object.keys(srs).forEach(function (c) { var st = srs[c]; if (!st || !st.taught) return; var box = st.box || 0; var wrong = st.wrong || 0; if (box >= SRS_MASTER_BOX) return; if (wrong < 1 && box > 2) return; bump(c, 100 + wrong * 50 + (SRS_MASTER_BOX - box) * 3); });
+  // ③ 埋め合わせ（N字に満たない日）：今の単元(集中)→そのほかの既習
+  Object.keys(srs).forEach(function (c) { var st = srs[c]; if (!st || !st.taught) return; if ((st.box || 0) >= SRS_MASTER_BOX || cand[c] != null) return; bump(c, (st.focus ? 40 : 10) + (SRS_MASTER_BOX - (st.box || 0))); });
+  var arr = Object.keys(cand).map(function (c) { return { kanji: c, score: cand[c] }; });
+  arr.sort(function (a, b) { if (b.score !== a.score) return b.score - a.score; return kanjiSortKey(a.kanji).localeCompare(kanjiSortKey(b.kanji), "ja"); });
+  arr = arr.slice(0, Math.max(0, n || 0));
+  var known = knownKanjiSet(data, chId, ch);
+  arr.forEach(function (it) { var w = pickWordForChar(ch, it.kanji, date, known); it.word = w.word; it.reading = w.reading; it.sentence = w.sentence; });
+  return arr;
+}
+
 // ===== 例文の多空欄化（2026-09-05）: 既習の語を空欄にし、漢字ごとに出題 =====
 var KANJI_READ_INDEX = {}; var KANJI_READ_MAXLEN = 1;
 function isKanjiC(c){ var o=c.charCodeAt(0); return o>=0x4E00&&o<=0x9FFF; }
@@ -572,6 +618,7 @@ function freezeKanjiQ(d, chId, date) {
   }
   return d.kanjiTestFrozen[chId][date];
 }
+function isKanjiTestDay(ds) { var p = (ds || "").split("-"); if (p.length !== 3) return true; var g = new Date(+p[0], +p[1] - 1, +p[2]).getDay(); return g !== 0 && g !== 6; } // 月〜金のみ（土日は漢字テストなし）
 function readKanjiQ(data, chId, date) {
   var list = effKanjiList(data, chId, date);
   var ids = (data.kanjiTestFrozen && data.kanjiTestFrozen[chId] && data.kanjiTestFrozen[chId][date]) || null;
@@ -1100,6 +1147,10 @@ function WeekPlanCard(p) {
   var kanjiDue = kanjiActive.length > 0 && !isWeekend; // 2026-08-21 土日は漢字テストを出さない
   var kanjiDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   var kanjiGraded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_graded"]);
+  var _noteSt = srsSettings(data, ch.id);
+  var noteOn = (ch.id === "eishi" || ch.id === "yuzuki") && _noteSt.noteOn !== false && !todayRest;
+  var noteList = noteOn ? kanjiWeakList(data, ch.id, TD, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay) : [];
+  var noteDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_note"]);
   var kanjiResults = (data.kanjiTestResults && data.kanjiTestResults[ch.id] && data.kanjiTestResults[ch.id][TD]) || null;
   // 週プールのタスクを曜日べつに編集（名前・目安時間・曜日の変更）。今週・来週の両方で使う（2026-08-17）
   var startEdit = function (t, scope) {
@@ -1172,6 +1223,33 @@ function WeekPlanCard(p) {
     d.todayChecks[ch.id][TD]["label_kanji_test"] = "漢字テスト（" + kanjiActive.length + "問）";
     save(d);
     setKanjiTestIdx(-1);
+  };
+  var finishKanjiNote = function () {
+    if (noteDone) return;
+    var d = clone(data);
+    if (!d.todayChecks) d.todayChecks = {};
+    if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
+    if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
+    d.todayChecks[ch.id][TD]["kanji_note"] = true;
+    d.todayChecks[ch.id][TD]["label_kanji_note"] = "にがて漢字ノート（" + noteList.length + "字）";
+    ensurePts(d, ch.id);
+    var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
+    var ptId = "kn" + Date.now();
+    d.points[ch.id].balance += ptAmt;
+    if (!d.points[ch.id].history) d.points[ch.id].history = [];
+    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: "にがて漢字ノート", date: TD, id: ptId });
+    d.todayChecks[ch.id][TD]["kanji_note_pt"] = ptId;
+    d.todayChecks[ch.id][TD]["kanji_note_ptAmt"] = ptAmt;
+    save(d);
+  };
+  var undoKanjiNote = function () {
+    var d = clone(data);
+    var tc = (d.todayChecks && d.todayChecks[ch.id] && d.todayChecks[ch.id][TD]) || null;
+    if (!tc) { save(d); return; }
+    var ptId = tc["kanji_note_pt"]; var amt = tc["kanji_note_ptAmt"] || 0;
+    if (ptId && d.points && d.points[ch.id]) { d.points[ch.id].history = (d.points[ch.id].history || []).filter(function (h) { return h.id !== ptId; }); d.points[ch.id].balance = Math.max(0, (d.points[ch.id].balance || 0) - amt); }
+    delete tc["kanji_note"]; delete tc["kanji_note_pt"]; delete tc["kanji_note_ptAmt"];
+    save(d);
   };
   var rowU = function (x) {
     var t = x.t;
@@ -1266,6 +1344,33 @@ function WeekPlanCard(p) {
                     })}
                   </div>
                 )}
+              </div>
+            )}
+            {noteOn && noteList.length > 0 && !noteDone && (
+              <div style={{ background: "#FFF8F0", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6, border: "1px solid #FFE0B2" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 16 }}>✍️</span>
+                  <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#E65100" }}><Kid t={"にがて漢字ノート（" + noteList.length + "字）"} ch={ch} data={data} on={!isP} /></div>
+                </div>
+                <div style={{ fontSize: 11, color: "#999", marginBottom: 8 }}><Kid t={"ノートに1字ずつ、一行ずつ書こう！"} ch={ch} data={data} on={!isP} /></div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {noteList.map(function (it, i) {
+                    return (
+                      <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", background: "#fff", borderRadius: 10, padding: "6px 10px", border: "1px solid #f0e0d0", minWidth: 50 }}>
+                        <span style={{ fontSize: 24, fontWeight: 900, color: ch.color, lineHeight: 1.1 }}>{it.word}</span>
+                        {it.reading ? <span style={{ fontSize: 10, color: "#aaa", marginTop: 2 }}>{it.reading}</span> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={finishKanjiNote} style={{ ...S.subBtn, background: "#FB8C00", marginTop: 10 }}><Kid t={"✍️ ぜんぶ書けた！"} ch={ch} data={data} on={!isP} /></button>
+              </div>
+            )}
+            {noteOn && noteDone && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0" }}>
+                <div style={{ width: 24, height: 24, borderRadius: 12, background: "#4CAF50", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✓</div>
+                <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through", opacity: .6 }}><Kid t={"にがて漢字ノート"} ch={ch} data={data} on={!isP} /></div>
+                {isP && <button onClick={undoKanjiNote} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#bbb" }}>↩</button>}
               </div>
             )}
             {todayList.map(rowU)}
@@ -4168,13 +4273,18 @@ function KanjiTab(p) {
   var todayDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   const [testState, setTestState] = useState(null);
   const [gradeDate, setGradeDate] = useState(function () {
+    var anyWeekday = null, candidate = null;
     for (var dd = 0; dd < 7; dd++) {
       var dt = new Date(NOW); dt.setDate(dt.getDate() - dd);
       var ds = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+      if (!isKanjiTestDay(ds)) continue; // 土日は漢字テストの対象外
+      if (anyWeekday == null) anyWeekday = ds;
       var graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds] && data.todayChecks[ch.id][ds]["kanji_graded"]);
-      if (!graded && kanjiDailyQueue(effKanjiList(data, ch.id, ds), ds).length > 0) return ds;
+      var hasQ = kanjiDailyQueue(effKanjiList(data, ch.id, ds), ds).length > 0;
+      if (candidate == null && (hasQ || graded)) candidate = ds;
+      if (!graded && hasQ) return ds; // 未採点で出題ありの直近平日を優先
     }
-    return TD;
+    return candidate || anyWeekday || TD;
   });
   const [editId, setEditId] = useState(null);
   const [editReading, setEditReading] = useState("");
@@ -4234,8 +4344,8 @@ function KanjiTab(p) {
       if (item) {
         if (newResults[qItem.id]) {
           item.correctStreak = (item.correctStreak || 0) + 1;
-          if (item.correctStreak >= 2) item.completed = true;
-        } else { item.correctStreak = 0; }
+          if (item.correctStreak >= 2 && !item.completed) { item.completed = true; wordKanji(item.kanji || "").forEach(function (c) { srsGraduate(d, ch.id, c, gd); }); }
+        } else { item.correctStreak = 0; item.wrong = (item.wrong || 0) + 1; }
       }
     });
     if (!d.todayChecks) d.todayChecks = {};
@@ -4310,6 +4420,7 @@ function KanjiTab(p) {
   for (var _gd = 0; _gd < 7; _gd++) {
     var _dt = new Date(NOW); _dt.setDate(_dt.getDate() - _gd);
     var _ds = _dt.getFullYear() + "-" + String(_dt.getMonth() + 1).padStart(2, "0") + "-" + String(_dt.getDate()).padStart(2, "0");
+    if (!isKanjiTestDay(_ds)) continue; // 土日は採点候補から除外
     var _q = kanjiDailyQueue(effKanjiList(data, ch.id, _ds), _ds);
     var _graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_ds] && data.todayChecks[ch.id][_ds]["kanji_graded"]);
     if (_q.length > 0 || _graded) gradeDays.push({ date: _ds, label: _gd === 0 ? "今日" : _gd === 1 ? "きのう" : (_dt.getMonth() + 1) + "/" + _dt.getDate(), count: _q.length, graded: _graded });
@@ -4365,6 +4476,8 @@ function KanjiTab(p) {
               <span>1日<input type="number" value={st.dailyCap} onChange={function (e) { setStv("dailyCap", Math.max(1, parseInt(e.target.value) || 1)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />問まで</span>
               <span>新しく<input type="number" value={st.newPerDay} onChange={function (e) { setStv("newPerDay", Math.max(0, parseInt(e.target.value) || 0)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />字/日</span>
               <button onClick={function () { setStv("mixPrior", !st.mixPrior); }} style={{ ...S.smBtn, background: st.mixPrior ? ch.color : "#eee", color: st.mixPrior ? "#fff" : "#888", fontSize: 11 }}>前学年も混ぜる {st.mixPrior ? "ON" : "OFF"}</button>
+              <button onClick={function () { setStv("noteOn", st.noteOn === false); }} style={{ ...S.smBtn, background: st.noteOn !== false ? "#FB8C00" : "#eee", color: st.noteOn !== false ? "#fff" : "#888", fontSize: 11 }}>苦手ノート {st.noteOn !== false ? "ON" : "OFF"}</button>
+              <span>ノート<input type="number" value={st.notePerDay == null ? 7 : st.notePerDay} onChange={function (e) { setStv("notePerDay", Math.max(1, parseInt(e.target.value) || 1)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />字/日</span>
             </div>
             <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>下のボタンで操作を選び、漢字をタップ：</div>
             <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
@@ -4392,7 +4505,7 @@ function KanjiTab(p) {
                 return <button key={c} onClick={function () { tap(c); }} style={{ width: 30, height: 30, borderRadius: 6, border: bd, background: bg, color: col, fontSize: 15, fontWeight: 700, cursor: "pointer", padding: 0 }} title={master ? "定着" : focus ? "集中" : taught ? "習った" : "未"}>{c}</button>;
               })}
             </div>
-            <div style={{ fontSize: 10, color: "#aaa", marginTop: 6, lineHeight: 1.6 }}>グレー=未 ／ <span style={{ color: ch.color, fontWeight: 700 }}>色つき=集中(今の単元)</span> ／ うすい=習った ／ <span style={{ color: "#2E7D32", fontWeight: 700 }}>緑=定着</span>。テストは「今日のやること」の🎯漢字テストに合流します。</div>
+            <div style={{ fontSize: 10, color: "#aaa", marginTop: 6, lineHeight: 1.6 }}>グレー=未 ／ <span style={{ color: ch.color, fontWeight: 700 }}>色つき=集中(今の単元・毎日最優先)</span> ／ うすい=習った ／ <span style={{ color: "#2E7D32", fontWeight: 700 }}>緑=定着</span>。集中の字は<b>定着(5回○)するまで毎日いちばん上</b>に出ます。テストが終わったら「はずす」でOK。</div>
           </div>
         );
       })()}
