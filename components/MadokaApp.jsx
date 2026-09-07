@@ -204,6 +204,7 @@ export default function App() {
         if (!p.kanjiPending) p.kanjiPending = {}; // 2026-06-06 来週以降の漢字練習予約
         if (!p.kanjiTestFrozen) p.kanjiTestFrozen = {}; // 2026-06-06 漢字テスト固定出題
         if (!p.kanjiTestResults) p.kanjiTestResults = {}; // 2026-06-06 漢字テスト採点結果
+        if (!p.kanjiNoteCustom) p.kanjiNoteCustom = {}; // 2026-09-07 にがて漢字ノートのお母さん指定
         if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
         if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
         // 2026-08-22 チャレンジを回ごと管理へ移行：doneNums 未設定なら連番[1..doneUnits]で初期化
@@ -870,6 +871,8 @@ function WeekPlanCard(p) {
   const [editLabel, setEditLabel] = useState("");
   const [editMin, setEditMin] = useState("");
   const [editDay, setEditDay] = useState(0);
+  const [noteEdit, setNoteEdit] = useState(false);
+  const [noteText, setNoteText] = useState("");
   var weekKey = weekStartKey(TD);
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var wp = (data.weekPlan && data.weekPlan[ch.id]) || null;
@@ -1149,7 +1152,8 @@ function WeekPlanCard(p) {
   var kanjiGraded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_graded"]);
   var _noteSt = srsSettings(data, ch.id);
   var noteOn = (ch.id === "eishi" || ch.id === "yuzuki") && _noteSt.noteOn !== false && !todayRest;
-  var noteList = noteOn ? kanjiWeakList(data, ch.id, TD, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay) : [];
+  var noteCustom = (data.kanjiNoteCustom && data.kanjiNoteCustom[ch.id]) || null;
+  var noteList = noteOn ? ((noteCustom && noteCustom.length) ? noteCustom.slice() : kanjiWeakList(data, ch.id, TD, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay)) : [];
   var noteDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_note"]);
   var kanjiResults = (data.kanjiTestResults && data.kanjiTestResults[ch.id] && data.kanjiTestResults[ch.id][TD]) || null;
   // 週プールのタスクを曜日べつに編集（名前・目安時間・曜日の変更）。今週・来週の両方で使う（2026-08-17）
@@ -1251,6 +1255,22 @@ function WeekPlanCard(p) {
     delete tc["kanji_note"]; delete tc["kanji_note_pt"]; delete tc["kanji_note_ptAmt"];
     save(d);
   };
+  var openNoteEdit = function () {
+    var lines = (noteList || []).map(function (it) { return it.word + (it.reading ? ("\u3000" + it.reading) : ""); }).join("\n");
+    setNoteText(lines); setNoteEdit(true);
+  };
+  var saveNoteEdit = function () {
+    var entries = (noteText || "").split(/\n+/).map(function (ln) { return ln.replace(/^[\s\u3000]+|[\s\u3000]+$/g, ""); }).filter(function (ln) { return ln.length > 0; }).map(function (ln) { var toks = ln.split(/[\s\u3000]+/); return { word: toks[0], reading: toks.slice(1).join("") }; });
+    var d = clone(data);
+    if (!d.kanjiNoteCustom) d.kanjiNoteCustom = {};
+    if (entries.length) d.kanjiNoteCustom[ch.id] = entries; else delete d.kanjiNoteCustom[ch.id];
+    save(d); setNoteEdit(false);
+  };
+  var resetNoteAuto = function () {
+    var d = clone(data);
+    if (d.kanjiNoteCustom) delete d.kanjiNoteCustom[ch.id];
+    save(d); setNoteEdit(false);
+  };
   var rowU = function (x) {
     var t = x.t;
     var pit = { id: t.id, label: t.label, subject: t.subject || "", time: t.estMin ? (t.estMin + "分") : "", emoji: emojiOf(t.action), action: t.action, wbId: t.wbId, pages: t.pages };
@@ -1346,31 +1366,48 @@ function WeekPlanCard(p) {
                 )}
               </div>
             )}
-            {noteOn && noteList.length > 0 && !noteDone && (
+            {noteOn && (noteList.length > 0 || (isP && noteEdit)) && (!noteDone || isP) && (
               <div style={{ background: "#FFF8F0", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6, border: "1px solid #FFE0B2" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 16 }}>✍️</span>
                   <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#E65100" }}><Kid t={"にがて漢字ノート（" + noteList.length + "字）"} ch={ch} data={data} on={!isP} /></div>
+                  {noteCustom && <span style={{ fontSize: 10, fontWeight: 700, color: "#7C6FF0", background: "#F1EFFF", borderRadius: 8, padding: "2px 8px" }}>お母さん指定</span>}
+                  {noteDone && <span style={{ fontSize: 10, fontWeight: 700, color: "#4CAF50" }}>✓済み</span>}
+                  {isP && !noteEdit && <button onClick={openNoteEdit} style={{ ...S.smBtn, background: "#fff", color: "#E65100", border: "1px solid #FFCC80", fontSize: 11 }}>✏️ 編集</button>}
                 </div>
-                <div style={{ fontSize: 11, color: "#999", marginBottom: 8 }}><Kid t={"ノートに1字ずつ、一行ずつ書こう！"} ch={ch} data={data} on={!isP} /></div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {noteList.map(function (it, i) {
-                    return (
-                      <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", background: "#fff", borderRadius: 10, padding: "6px 10px", border: "1px solid #f0e0d0", minWidth: 50 }}>
-                        <span style={{ fontSize: 24, fontWeight: 900, color: ch.color, lineHeight: 1.1 }}>{it.word}</span>
-                        {it.reading ? <span style={{ fontSize: 10, color: "#aaa", marginTop: 2 }}>{it.reading}</span> : null}
-                      </div>
-                    );
-                  })}
-                </div>
-                <button onClick={finishKanjiNote} style={{ ...S.subBtn, background: "#FB8C00", marginTop: 10 }}><Kid t={"✍️ ぜんぶ書けた！"} ch={ch} data={data} on={!isP} /></button>
+                {isP && noteEdit ? (
+                  <div>
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 6, lineHeight: 1.6 }}>1行に1つ。単語のあとに読みも書けます（例：<b>海水　かいすい</b>）。明日のテストに出す漢字などを自由に指定できます。空にして保存すると自動（苦手）にもどります。</div>
+                    <textarea value={noteText} onChange={function (e) { setNoteText(e.target.value); }} rows={6} style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", lineHeight: 1.7 }} />
+                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      <button onClick={saveNoteEdit} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>保存</button>
+                      <button onClick={resetNoteAuto} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666" }}>自動にもどす</button>
+                      <button onClick={function () { setNoteEdit(false); }} style={{ ...S.smBtn, background: "#fff", color: "#999", border: "1px solid #eee" }}>キャンセル</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    {!noteDone && <div style={{ fontSize: 11, color: "#999", marginBottom: 8 }}><Kid t={"ノートに1字ずつ、一行ずつ書こう！"} ch={ch} data={data} on={!isP} /></div>}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {noteList.map(function (it, i) {
+                        return (
+                          <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", background: "#fff", borderRadius: 10, padding: "6px 10px", border: "1px solid #f0e0d0", minWidth: 50 }}>
+                            <span style={{ fontSize: 24, fontWeight: 900, color: ch.color, lineHeight: 1.1 }}>{it.word}</span>
+                            {it.reading ? <span style={{ fontSize: 10, color: "#aaa", marginTop: 2 }}>{it.reading}</span> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {!noteDone && <button onClick={finishKanjiNote} style={{ ...S.subBtn, background: "#FB8C00", marginTop: 10 }}><Kid t={"✍️ ぜんぶ書けた！"} ch={ch} data={data} on={!isP} /></button>}
+                    {noteDone && isP && <button onClick={undoKanjiNote} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", marginTop: 10 }}>↩ やり直し</button>}
+                  </div>
+                )}
               </div>
             )}
-            {noteOn && noteDone && (
+            {noteOn && noteList.length > 0 && noteDone && !isP && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0" }}>
                 <div style={{ width: 24, height: 24, borderRadius: 12, background: "#4CAF50", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✓</div>
                 <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through", opacity: .6 }}><Kid t={"にがて漢字ノート"} ch={ch} data={data} on={!isP} /></div>
-                {isP && <button onClick={undoKanjiNote} style={{ background: "none", border: "none", fontSize: 11, cursor: "pointer", color: "#bbb" }}>↩</button>}
               </div>
             )}
             {todayList.map(rowU)}
