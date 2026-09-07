@@ -204,7 +204,8 @@ export default function App() {
         if (!p.kanjiPending) p.kanjiPending = {}; // 2026-06-06 来週以降の漢字練習予約
         if (!p.kanjiTestFrozen) p.kanjiTestFrozen = {}; // 2026-06-06 漢字テスト固定出題
         if (!p.kanjiTestResults) p.kanjiTestResults = {}; // 2026-06-06 漢字テスト採点結果
-        if (!p.kanjiNoteCustom) p.kanjiNoteCustom = {}; // 2026-09-07 にがて漢字ノートのお母さん指定
+        if (!p.kanjiNoteCustom) p.kanjiNoteCustom = {}; // 2026-09-07 にがて漢字ノートのお母さん指定（日付ごと）
+        Object.keys(p.kanjiNoteCustom).forEach(function (cid) { var v = p.kanjiNoteCustom[cid]; if (Array.isArray(v)) { var o = {}; o[TD] = v; p.kanjiNoteCustom[cid] = v = o; } if (v && typeof v === "object") { Object.keys(v).forEach(function (ds) { if (ds < TD) delete v[ds]; }); } });
         if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
         if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
         // 2026-08-22 チャレンジを回ごと管理へ移行：doneNums 未設定なら連番[1..doneUnits]で初期化
@@ -873,6 +874,7 @@ function WeekPlanCard(p) {
   const [editDay, setEditDay] = useState(0);
   const [noteEdit, setNoteEdit] = useState(false);
   const [noteText, setNoteText] = useState("");
+  const [noteEditDate, setNoteEditDate] = useState(TD);
   var weekKey = weekStartKey(TD);
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var wp = (data.weekPlan && data.weekPlan[ch.id]) || null;
@@ -1152,7 +1154,12 @@ function WeekPlanCard(p) {
   var kanjiGraded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_graded"]);
   var _noteSt = srsSettings(data, ch.id);
   var noteOn = (ch.id === "eishi" || ch.id === "yuzuki") && _noteSt.noteOn !== false && !todayRest;
-  var noteCustom = (data.kanjiNoteCustom && data.kanjiNoteCustom[ch.id]) || null;
+  var _noteCustAll = (data.kanjiNoteCustom && data.kanjiNoteCustom[ch.id]) || null;
+  if (Array.isArray(_noteCustAll)) _noteCustAll = null;
+  var noteCustom = (_noteCustAll && _noteCustAll[TD]) || null;
+  var noteDates = [];
+  for (var _ni = 0; _ni < 7; _ni++) { var _ndt = new Date(NOW); _ndt.setDate(_ndt.getDate() + _ni); var _nds = _ndt.getFullYear() + "-" + String(_ndt.getMonth() + 1).padStart(2, "0") + "-" + String(_ndt.getDate()).padStart(2, "0"); var _nlbl = _ni === 0 ? "今日" : _ni === 1 ? "明日" : (dayNames[(_ndt.getDay() + 6) % 7] + " " + (_ndt.getMonth() + 1) + "/" + _ndt.getDate()); noteDates.push({ ds: _nds, label: _nlbl, has: !!(_noteCustAll && _noteCustAll[_nds] && _noteCustAll[_nds].length) }); }
+  var noteFutureCustom = noteDates.filter(function (nd) { return nd.has && nd.ds !== TD; });
   var noteList = noteOn ? ((noteCustom && noteCustom.length) ? noteCustom.slice() : kanjiWeakList(data, ch.id, TD, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay)) : [];
   var noteDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_note"]);
   var kanjiResults = (data.kanjiTestResults && data.kanjiTestResults[ch.id] && data.kanjiTestResults[ch.id][TD]) || null;
@@ -1255,21 +1262,28 @@ function WeekPlanCard(p) {
     delete tc["kanji_note"]; delete tc["kanji_note_pt"]; delete tc["kanji_note_ptAmt"];
     save(d);
   };
-  var openNoteEdit = function () {
-    var lines = (noteList || []).map(function (it) { return it.word + (it.reading ? ("\u3000" + it.reading) : ""); }).join("\n");
-    setNoteText(lines); setNoteEdit(true);
+  var noteLinesForDate = function (ds) {
+    var cu = _noteCustAll && _noteCustAll[ds];
+    var lst = (cu && cu.length) ? cu : kanjiWeakList(data, ch.id, ds, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay);
+    return (lst || []).map(function (it) { return it.word + (it.reading ? ("\u3000" + it.reading) : ""); }).join("\n");
   };
+  var parseNote = function (t) { return (t || "").split(/\n+/).map(function (ln) { return ln.replace(/^[\s\u3000]+|[\s\u3000]+$/g, ""); }).filter(function (ln) { return ln.length > 0; }).map(function (ln) { var toks = ln.split(/[\s\u3000]+/); return { word: toks[0], reading: toks.slice(1).join("") }; }); };
+  var openNoteEdit = function () { setNoteEditDate(TD); setNoteText(noteLinesForDate(TD)); setNoteEdit(true); };
+  var pickNoteDate = function (ds) { setNoteEditDate(ds); setNoteText(noteLinesForDate(ds)); };
   var saveNoteEdit = function () {
-    var entries = (noteText || "").split(/\n+/).map(function (ln) { return ln.replace(/^[\s\u3000]+|[\s\u3000]+$/g, ""); }).filter(function (ln) { return ln.length > 0; }).map(function (ln) { var toks = ln.split(/[\s\u3000]+/); return { word: toks[0], reading: toks.slice(1).join("") }; });
+    var entries = parseNote(noteText);
     var d = clone(data);
     if (!d.kanjiNoteCustom) d.kanjiNoteCustom = {};
-    if (entries.length) d.kanjiNoteCustom[ch.id] = entries; else delete d.kanjiNoteCustom[ch.id];
-    save(d); setNoteEdit(false);
+    if (!d.kanjiNoteCustom[ch.id] || Array.isArray(d.kanjiNoteCustom[ch.id])) d.kanjiNoteCustom[ch.id] = {};
+    if (entries.length) d.kanjiNoteCustom[ch.id][noteEditDate] = entries; else delete d.kanjiNoteCustom[ch.id][noteEditDate];
+    save(d);
   };
   var resetNoteAuto = function () {
     var d = clone(data);
-    if (d.kanjiNoteCustom) delete d.kanjiNoteCustom[ch.id];
-    save(d); setNoteEdit(false);
+    if (d.kanjiNoteCustom && d.kanjiNoteCustom[ch.id] && !Array.isArray(d.kanjiNoteCustom[ch.id])) delete d.kanjiNoteCustom[ch.id][noteEditDate];
+    save(d);
+    var auto = kanjiWeakList(d, ch.id, noteEditDate, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay);
+    setNoteText((auto || []).map(function (it) { return it.word + (it.reading ? ("\u3000" + it.reading) : ""); }).join("\n"));
   };
   var rowU = function (x) {
     var t = x.t;
@@ -1377,16 +1391,23 @@ function WeekPlanCard(p) {
                 </div>
                 {isP && noteEdit ? (
                   <div>
-                    <div style={{ fontSize: 11, color: "#888", marginBottom: 6, lineHeight: 1.6 }}>1行に1つ。単語のあとに読みも書けます（例：<b>海水　かいすい</b>）。明日のテストに出す漢字などを自由に指定できます。空にして保存すると自動（苦手）にもどります。</div>
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>どの日のノートを編集しますか？</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                      {noteDates.map(function (nd) {
+                        return <button key={nd.ds} onClick={function () { pickNoteDate(nd.ds); }} style={{ ...S.smBtn, background: nd.ds === noteEditDate ? ch.color : "#f0f0f0", color: nd.ds === noteEditDate ? "#fff" : "#666", fontSize: 11 }}>{nd.label}{nd.has ? " ●" : ""}</button>;
+                      })}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 6, lineHeight: 1.6 }}>1行に1つ。単語のあとに読みも書けます（例：<b>海水　かいすい</b>）。明日のテスト範囲などを、その日を選んで指定できます。「●」は指定ずみの日。空にして保存すると自動（苦手）にもどります。</div>
                     <textarea value={noteText} onChange={function (e) { setNoteText(e.target.value); }} rows={6} style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", lineHeight: 1.7 }} />
                     <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                      <button onClick={saveNoteEdit} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>保存</button>
+                      <button onClick={saveNoteEdit} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>この日に保存</button>
                       <button onClick={resetNoteAuto} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666" }}>自動にもどす</button>
-                      <button onClick={function () { setNoteEdit(false); }} style={{ ...S.smBtn, background: "#fff", color: "#999", border: "1px solid #eee" }}>キャンセル</button>
+                      <button onClick={function () { setNoteEdit(false); }} style={{ ...S.smBtn, background: "#fff", color: "#999", border: "1px solid #eee" }}>閉じる</button>
                     </div>
                   </div>
                 ) : (
                   <div>
+                    {isP && noteFutureCustom.length > 0 && <div style={{ fontSize: 10, color: "#7C6FF0", marginBottom: 6, fontWeight: 700 }}>📅 先の指定：{noteFutureCustom.map(function (x) { return x.label; }).join("・")}（「✏️ 編集」で日付を選んで確認・変更）</div>}
                     {!noteDone && <div style={{ fontSize: 11, color: "#999", marginBottom: 8 }}><Kid t={"ノートに1字ずつ、一行ずつ書こう！"} ch={ch} data={data} on={!isP} /></div>}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       {noteList.map(function (it, i) {
