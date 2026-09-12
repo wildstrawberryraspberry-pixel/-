@@ -206,7 +206,7 @@ export default function App() {
         if (!p.kanjiTestResults) p.kanjiTestResults = {}; // 2026-06-06 漢字テスト採点結果
         if (!p.kanjiNoteCustom) p.kanjiNoteCustom = {}; // 2026-09-07 にがて漢字ノートのお母さん指定（日付ごと）
         if (!p.pet) p.pet = {}; // 2026-09-12 ハムスター育成（優珠綺）
-        Object.keys(p.pet).forEach(function (cid) { var pt = p.pet[cid]; if (pt && typeof pt === "object") { if (pt.spent == null) pt.spent = pt.fed || 0; if (!pt.items) pt.items = []; if (!pt.equip) pt.equip = []; if (pt.genki == null) { pt.genki = 100; pt.genkiDate = TD; } } });
+        Object.keys(p.pet).forEach(function (cid) { var pt = p.pet[cid]; if (pt && typeof pt === "object") { if (pt.spent == null) pt.spent = pt.fed || 0; if (!pt.items) pt.items = []; if (!pt.equip) pt.equip = []; if (pt.genki == null) { pt.genki = 100; pt.genkiDate = TD; } if (pt.seedBase == null) { var hh = (p.points && p.points[cid] && p.points[cid].history) || []; var e = hh.reduce(function (s, h) { return s + (h.type === "earn" ? (h.amount || 0) : (h.type === "undo" ? -(h.amount || 0) : 0)); }, 0); pt.seedBase = e - 5; pt.spent = 0; } } });
         Object.keys(p.kanjiNoteCustom).forEach(function (cid) { var v = p.kanjiNoteCustom[cid]; if (Array.isArray(v)) { var o = {}; o[TD] = v; p.kanjiNoteCustom[cid] = v = o; } if (v && typeof v === "object") { Object.keys(v).forEach(function (ds) { if (ds < TD) delete v[ds]; }); } });
         if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
         if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
@@ -933,7 +933,7 @@ function WeekPlanCard(p) {
     d.todayChecks[ch.id][TD]["week_" + t.id] = true;
     ensurePts(d, ch.id);
     var _pc = d._pointConfig || {};
-    var ptAmt = t.action === "test" ? (_pc.chalTest || 2) : t.action === "unit" ? (_pc.chalUnit || 1) : (t.action === "pages" || t.action === "pit_pages") ? (_pc.pageDone || 1) : (_pc.taskDone || 1);
+    var ptAmt = t.action === "test" ? (_pc.chalTest || 2) : t.action === "unit" ? (_pc.chalUnit || 1) : (t.action === "pages" || t.action === "pit_pages") ? (_pc.pageDone || 1) : t.action === "smile" ? (_pc.smileDone || 4) : (_pc.taskDone || 1);
     var ptId = "wk" + Date.now();
     d.points[ch.id].balance += ptAmt;
     d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: t.label + " 完了", date: TD, id: ptId });
@@ -1628,7 +1628,8 @@ function petThresholds() { var t = [0, 3, 8, 15, 25, 40, 60, 85, 115, 150]; var 
 function petLevel(exp) { var t = petThresholds(); var lv = 1; for (var i = 0; i < t.length; i++) { if ((exp || 0) >= t[i]) lv = i + 1; else break; } return lv; }
 function petStage(level) { return level >= 10 ? 3 : level >= 6 ? 2 : level >= 3 ? 1 : 0; }
 function petStageName(level) { return ["赤ちゃん", "こども", "おとな", "たいしょう"][petStage(level)]; }
-function petSeedsOf(data, chId) { var hist = (data.points && data.points[chId] && data.points[chId].history) || []; var earned = hist.reduce(function (s, h) { return s + (h.type === "earn" ? (h.amount || 0) : (h.type === "undo" ? -(h.amount || 0) : 0)); }, 0); var spent = (data.pet && data.pet[chId] && data.pet[chId].spent) || 0; return Math.max(0, earned - spent); }
+function petEarnedOf(data, chId) { var hist = (data.points && data.points[chId] && data.points[chId].history) || []; return hist.reduce(function (s, h) { return s + (h.type === "earn" ? (h.amount || 0) : (h.type === "undo" ? -(h.amount || 0) : 0)); }, 0); }
+function petSeedsOf(data, chId) { var pet = data.pet && data.pet[chId]; var spent = (pet && pet.spent) || 0; var baseB = (pet && pet.seedBase != null) ? pet.seedBase : 0; return Math.max(0, petEarnedOf(data, chId) - baseB - spent); }
 function petParseYmd(ds) { var a = (ds || "").split("-"); return new Date(+a[0] || 2020, (+a[1] || 1) - 1, +a[2] || 1); }
 function petStudiedOn(data, chId, ds) { var hist = (data.points && data.points[chId] && data.points[chId].history) || []; for (var i = 0; i < hist.length; i++) { if (hist[i].type === "earn" && hist[i].date === ds) return true; } return false; }
 function petGenki(data, chId) {
@@ -1645,16 +1646,17 @@ function petGenki(data, chId) {
 function petGenkiState(g) { return g >= 70 ? { label: "げんき", color: "#4CAF50" } : g >= 40 ? { label: "ふつう", color: "#FBC02D" } : g >= 20 ? { label: "げんきがない", color: "#FB8C00" } : { label: "びょうき", color: "#E53935" }; }
 function petLines(ctx) {
   var name = (ctx && ctx.name) || "ハム";
+  var child = (ctx && ctx.child) ? (ctx.child + "ちゃん") : "きみ";
   var lv = (ctx && ctx.level) || 1;
   var seeds = (ctx && ctx.seeds) || 0;
   var hearts = (ctx && ctx.hearts) || 0;
   var genki = (ctx && ctx.genki != null) ? ctx.genki : 100;
-  if (genki < 40) { return ["げんきが でないよ…", "びょうき かも…。べんきょう いっしょに してくれる？", "はやく げんきに なりたいな…", "きみが べんきょうすると げんきが でるよ！", "うぅ…なでてくれて ありがとう"]; }
-  var a = ["こんにちは！", name + "だよ、よろしくね♪", "きょうも べんきょう がんばろ！", "えらいね！すごいね！", "だいすき♪", "いっしょに おべんきょう しよ〜", "つぎは なにを おぼえるの？", "きみが がんばると げんきに なるよ！"];
-  if (seeds > 0) { a.push("ひまわりのたね たべたいな♪"); a.push("たね、あるの？ うれしい！"); }
+  if (genki < 40) { return [child + "、げんきが でないよ…", child + "、びょうき かも…。べんきょう いっしょに してくれる？", "はやく げんきに なりたいな…", child + "が べんきょうすると げんきが でるよ！", "うぅ…なでてくれて ありがとう"]; }
+  var a = [child + "、こんにちは！", name + "だよ、" + child + " よろしくね♪", child + "、きょうも べんきょう がんばろ！", child + "、えらいね！すごいね！", child + " だいすき♪", child + "、いっしょに おべんきょう しよ〜", "つぎは なにを おぼえるの？", child + "が がんばると げんきに なるよ！"];
+  if (seeds > 0) { a.push("ひまわりのたね たべたいな♪"); a.push(child + "、たね あるの？ うれしい！"); }
   else { a.push("おなか いっぱい！ ありがとう♪"); a.push("まんぷくで しあわせ〜"); }
   if (lv >= 6) a.push("こんなに おおきく なったよ！");
-  if (hearts >= 20) a.push("ずっと なかよしだね❤️");
+  if (hearts >= 20) a.push(child + "と ずっと なかよしだね❤️");
   return a;
 }
 function HamsterBody(p) {
@@ -1759,10 +1761,10 @@ function PetTab(p) {
   var next = (T[level] != null) ? T[level] : base;
   var toNext = Math.max(0, next - exp);
   var prog = next > base ? Math.min(100, Math.round((exp - base) / (next - base) * 100)) : 100;
-  function ensurePet(d) { if (!d.pet) d.pet = {}; if (!d.pet[ch.id]) d.pet[ch.id] = { name: "", exp: 0, fed: 0, spent: 0, hearts: 0, born: TD, genki: 100, genkiDate: TD, items: [], equip: [] }; var pp = d.pet[ch.id]; if (pp.items == null) pp.items = []; if (pp.equip == null) pp.equip = []; if (pp.spent == null) pp.spent = 0; return d; }
-  useEffect(function () { var L = petLines({ name: (pet && pet.name) || "", level: level, seeds: seeds, hearts: hearts, genki: genki }); setSpeech(L[Math.floor(Math.random() * L.length)]); }, [ch.id]);
+  function ensurePet(d) { if (!d.pet) d.pet = {}; if (!d.pet[ch.id]) d.pet[ch.id] = { name: "", exp: 0, fed: 0, spent: 0, hearts: 0, born: TD, genki: 100, genkiDate: TD, items: [], equip: [], seedBase: petEarnedOf(d, ch.id) - 5 }; var pp = d.pet[ch.id]; if (pp.items == null) pp.items = []; if (pp.equip == null) pp.equip = []; if (pp.spent == null) pp.spent = 0; if (pp.seedBase == null) pp.seedBase = petEarnedOf(d, ch.id) - 5; return d; }
+  useEffect(function () { var L = petLines({ name: (pet && pet.name) || "", level: level, seeds: seeds, hearts: hearts, genki: genki, child: ch.name }); setSpeech(L[Math.floor(Math.random() * L.length)]); }, [ch.id]);
   useEffect(function () { var pt = data.pet && data.pet[ch.id]; if (!pt) return; if (pt.genki !== genki || pt.genkiDate !== TD) { var d = clone(data); ensurePet(d); d.pet[ch.id].genki = genki; d.pet[ch.id].genkiDate = TD; save(d); } }, [ch.id]);
-  var talk = function () { var L = petLines({ name: name, level: level, seeds: petSeedsOf(data, ch.id), hearts: hearts, genki: petGenki(data, ch.id) }); setSpeech(L[Math.floor(Math.random() * L.length)]); };
+  var talk = function () { var L = petLines({ name: name, level: level, seeds: petSeedsOf(data, ch.id), hearts: hearts, genki: petGenki(data, ch.id), child: ch.name }); setSpeech(L[Math.floor(Math.random() * L.length)]); };
   var doFeed = function (n) {
     if (seeds <= 0) return; var give = Math.min(n, seeds);
     var d = clone(data); ensurePet(d);
@@ -1866,7 +1868,7 @@ function PetTab(p) {
         <div><div style={{ fontSize: 18, fontWeight: 800, color: "#FB8C00" }}>{fed}</div><div style={{ fontSize: 10, color: "#999" }}>たべたたね</div></div>
         <div><div style={{ fontSize: 18, fontWeight: 800, color: "#7C6FF0" }}>{days}</div><div style={{ fontSize: 10, color: "#999" }}>いっしょの日</div></div>
       </div>
-      {isP ? <div style={{ fontSize: 10, color: "#bbb", textAlign: "center", marginTop: 4, lineHeight: 1.5 }}>※ひまわりのたね＝獲得ポイント総数−つかった数。げんきは平日に学習すると回復、さぼると減ります（土日・お休みは減りません）。ごほうびポイントとは別会計です。</div> : null}
+      {isP ? <div style={{ fontSize: 10, color: "#bbb", textAlign: "center", marginTop: 4, lineHeight: 1.5 }}>※ひまわりのたねは「この機能をはじめてから」貯まります（最初は5こ）。以降は学習で1つずつ増えます。げんきは平日に学習すると回復・さぼると減少（土日・お休みは増減なし）。ごほうびポイントとは別会計です。</div> : null}
     </div>
   );
 }
@@ -2054,7 +2056,7 @@ function HomeTab(p) {
     else if (item.action === "test") { ptAmt = _pc.chalTest || 2; }
     else if (item.action === "unit") { ptAmt = _pc.chalUnit || 1; }
     else if (item.action === "pages" || item.action === "pit_pages") { ptAmt = _pc.pageDone || 1; }
-    else if (item.action === "smile") { ptAmt = _pc.smileDone || 1; }
+    else if (item.action === "smile") { ptAmt = _pc.smileDone || 4; }
     else { ptAmt = _pc.taskDone || 1; }
     var _ptHistoryId = "tp" + Date.now();
     var _wbAdvance = (item.wbId && (item.action === "pages" || item.action === "pit_pages") && pagesAdvanced > 0) ? { wbId: item.wbId, pages: pagesAdvanced } : undefined;
@@ -3420,7 +3422,7 @@ function PointsTab(p) {
     chalUnit: planCfg.chalUnit || 1,
     chalTest: planCfg.chalTest || 2,
     pageDone: planCfg.pageDone || 1,
-    smileDone: planCfg.smileDone || 1,
+    smileDone: planCfg.smileDone || 4,
     partialDone: planCfg.partialDone || 1,
   };
   var award = function (cat) {
