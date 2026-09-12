@@ -205,6 +205,8 @@ export default function App() {
         if (!p.kanjiTestFrozen) p.kanjiTestFrozen = {}; // 2026-06-06 漢字テスト固定出題
         if (!p.kanjiTestResults) p.kanjiTestResults = {}; // 2026-06-06 漢字テスト採点結果
         if (!p.kanjiNoteCustom) p.kanjiNoteCustom = {}; // 2026-09-07 にがて漢字ノートのお母さん指定（日付ごと）
+        if (!p.pet) p.pet = {}; // 2026-09-12 ハムスター育成（優珠綺）
+        Object.keys(p.pet).forEach(function (cid) { var pt = p.pet[cid]; if (pt && typeof pt === "object") { if (pt.spent == null) pt.spent = pt.fed || 0; if (!pt.items) pt.items = []; if (!pt.equip) pt.equip = []; if (pt.genki == null) { pt.genki = 100; pt.genkiDate = TD; } } });
         Object.keys(p.kanjiNoteCustom).forEach(function (cid) { var v = p.kanjiNoteCustom[cid]; if (Array.isArray(v)) { var o = {}; o[TD] = v; p.kanjiNoteCustom[cid] = v = o; } if (v && typeof v === "object") { Object.keys(v).forEach(function (ds) { if (ds < TD) delete v[ds]; }); } });
         if (!p.weekPlanNext) p.weekPlanNext = {}; // 2026-06-06 来週ぶんの事前プラン
         if (!p.weekBonus) p.weekBonus = {}; // 2026-06-06 平日完了ボーナス記録
@@ -325,6 +327,7 @@ function MainView(p) {
   if (isM) navs.push({ id: "tests", icon: "📝", l: "テスト" });
   if (isM && (ch.id === "eishi" || ch.id === "yuzuki")) navs.push({ id: "kanji", icon: "✏️", l: "漢字" });
   if (isM) navs.push({ id: "rewards", icon: "🎁", l: "ごほうび" });
+  if (isM && ch.id === "yuzuki") navs.push({ id: "pet", icon: "🐹", l: "ハムスター" });
   return (
     <div style={S.app}>
       <style>{cssText}</style>
@@ -370,6 +373,7 @@ function MainView(p) {
         {tab === "tests" && isM && <TestsTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "kanji" && isM && (ch.id === "eishi" || ch.id === "yuzuki") && <KanjiTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "rewards" && isM && <RewardsTab ch={ch} data={data} save={save} isP={isP} />}
+        {tab === "pet" && isM && ch.id === "yuzuki" && <PetTab ch={ch} data={data} save={save} isP={isP} />}
       </main>
       {/* Nav */}
       <nav style={S.nav}>
@@ -1605,6 +1609,267 @@ function WeekPlanCard(p) {
     </div>
   );
 }
+// ===== ハムスター育成（2026-09-12 / 2026-09-12b 種経済・元気）=====
+var PET_EAT = ["むしゃむしゃ😋", "おいしいね！", "もぐもぐ…しあわせ♪", "ありがとう！", "げんきもりもり！"];
+var PET_ACC = [
+  { id: "ribbon", name: "リボン", emoji: "🎀", cost: 10, cat: "wear" },
+  { id: "hat", name: "ぼうし", emoji: "🎩", cost: 10, cat: "wear" },
+  { id: "flower", name: "おはな", emoji: "🌸", cost: 10, cat: "wear" },
+  { id: "glasses", name: "めがね", emoji: "👓", cost: 10, cat: "wear" },
+  { id: "crown", name: "おうかん", emoji: "👑", cost: 10, cat: "wear" },
+  { id: "rug", name: "ラグ", emoji: "🟪", cost: 10, cat: "room" },
+  { id: "window", name: "まど", emoji: "🪟", cost: 10, cat: "room" },
+  { id: "house", name: "おうち", emoji: "🏠", cost: 10, cat: "room" },
+  { id: "wheel", name: "まわし車", emoji: "🎡", cost: 10, cat: "room" },
+  { id: "plant", name: "しょくぶつ", emoji: "🪴", cost: 10, cat: "room" },
+  { id: "balloon", name: "ふうせん", emoji: "🎈", cost: 10, cat: "room" }
+];
+function petThresholds() { var t = [0, 3, 8, 15, 25, 40, 60, 85, 115, 150]; var v = 150; for (var i = 10; i < 30; i++) { v += 40; t.push(v); } return t; }
+function petLevel(exp) { var t = petThresholds(); var lv = 1; for (var i = 0; i < t.length; i++) { if ((exp || 0) >= t[i]) lv = i + 1; else break; } return lv; }
+function petStage(level) { return level >= 10 ? 3 : level >= 6 ? 2 : level >= 3 ? 1 : 0; }
+function petStageName(level) { return ["赤ちゃん", "こども", "おとな", "たいしょう"][petStage(level)]; }
+function petSeedsOf(data, chId) { var hist = (data.points && data.points[chId] && data.points[chId].history) || []; var earned = hist.reduce(function (s, h) { return s + (h.type === "earn" ? (h.amount || 0) : (h.type === "undo" ? -(h.amount || 0) : 0)); }, 0); var spent = (data.pet && data.pet[chId] && data.pet[chId].spent) || 0; return Math.max(0, earned - spent); }
+function petParseYmd(ds) { var a = (ds || "").split("-"); return new Date(+a[0] || 2020, (+a[1] || 1) - 1, +a[2] || 1); }
+function petStudiedOn(data, chId, ds) { var hist = (data.points && data.points[chId] && data.points[chId].history) || []; for (var i = 0; i < hist.length; i++) { if (hist[i].type === "earn" && hist[i].date === ds) return true; } return false; }
+function petGenki(data, chId) {
+  var pet = (data.pet && data.pet[chId]) || null; if (!pet) return 100;
+  var g = (pet.genki == null) ? 100 : pet.genki;
+  var dt = petParseYmd(pet.genkiDate || pet.born || TD); var end = petParseYmd(TD); var guard = 0;
+  while (dt < end && guard < 400) { dt.setDate(dt.getDate() + 1); guard++;
+    var ds = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+    var dow = dt.getDay(); if (dow === 0 || dow === 6) continue; if (isRestDay(data, chId, ds)) continue;
+    if (petStudiedOn(data, chId, ds)) g = Math.min(100, g + 12); else g = Math.max(0, g - 15);
+  }
+  return Math.round(g);
+}
+function petGenkiState(g) { return g >= 70 ? { label: "げんき", color: "#4CAF50" } : g >= 40 ? { label: "ふつう", color: "#FBC02D" } : g >= 20 ? { label: "げんきがない", color: "#FB8C00" } : { label: "びょうき", color: "#E53935" }; }
+function petLines(ctx) {
+  var name = (ctx && ctx.name) || "ハム";
+  var lv = (ctx && ctx.level) || 1;
+  var seeds = (ctx && ctx.seeds) || 0;
+  var hearts = (ctx && ctx.hearts) || 0;
+  var genki = (ctx && ctx.genki != null) ? ctx.genki : 100;
+  if (genki < 40) { return ["げんきが でないよ…", "びょうき かも…。べんきょう いっしょに してくれる？", "はやく げんきに なりたいな…", "きみが べんきょうすると げんきが でるよ！", "うぅ…なでてくれて ありがとう"]; }
+  var a = ["こんにちは！", name + "だよ、よろしくね♪", "きょうも べんきょう がんばろ！", "えらいね！すごいね！", "だいすき♪", "いっしょに おべんきょう しよ〜", "つぎは なにを おぼえるの？", "きみが がんばると げんきに なるよ！"];
+  if (seeds > 0) { a.push("ひまわりのたね たべたいな♪"); a.push("たね、あるの？ うれしい！"); }
+  else { a.push("おなか いっぱい！ ありがとう♪"); a.push("まんぷくで しあわせ〜"); }
+  if (lv >= 6) a.push("こんなに おおきく なったよ！");
+  if (hearts >= 20) a.push("ずっと なかよしだね❤️");
+  return a;
+}
+function HamsterBody(p) {
+  var lvl = p.level || 1; var stage = petStage(lvl);
+  var sc = [0.86, 0.94, 1.0, 1.06][stage];
+  var items = p.items || []; var has = function (id) { return items.indexOf(id) >= 0; };
+  var sick = !!p.sick;
+  var bodyCol = sick ? "#EFDDBE" : "#F5CF97";
+  return (
+    <g transform={"translate(60 70) scale(" + sc + ") translate(-60 -70)"}>
+      <path d="M60 15 q-7 -13 3 -13 q-3 7 6 9 z" fill="#E8B87A" />
+      <circle cx="35" cy="30" r="13" fill={bodyCol} />
+      <circle cx="85" cy="30" r="13" fill={bodyCol} />
+      <circle cx="35" cy="31" r="7" fill="#FFC6D1" />
+      <circle cx="85" cy="31" r="7" fill="#FFC6D1" />
+      <ellipse cx="60" cy="72" rx="47" ry="45" fill={bodyCol} />
+      <ellipse cx="60" cy="85" rx="32" ry="30" fill="#FFF8EE" />
+      <ellipse cx="23" cy="85" rx="9" ry="12.5" fill={bodyCol} />
+      <ellipse cx="97" cy="85" rx="9" ry="12.5" fill={bodyCol} />
+      <ellipse cx="60" cy="99" rx="5.2" ry="7.2" fill="#7A6A5A" />
+      <ellipse cx="60" cy="97" rx="2.4" ry="4.2" fill="#BBAA96" />
+      <ellipse cx="47" cy="116" rx="8" ry="5.5" fill={bodyCol} />
+      <ellipse cx="73" cy="116" rx="8" ry="5.5" fill={bodyCol} />
+      <circle cx="32" cy="75" r="9.5" fill={sick ? "#A9B7C2" : "#FFAFC0"} opacity={sick ? 0.5 : 0.6} />
+      <circle cx="88" cy="75" r="9.5" fill={sick ? "#A9B7C2" : "#FFAFC0"} opacity={sick ? 0.5 : 0.6} />
+      {sick ? (
+        <g>
+          <path d="M39 66 q7 5 14 0" stroke="#3B2E28" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+          <path d="M67 66 q7 5 14 0" stroke="#3B2E28" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+          <rect x="49" y="46" width="22" height="8" rx="4" fill="#8FD0F4" stroke="#4FA8DC" strokeWidth="1" />
+          <path d="M93 60 q4 7 0 11 q-4 -4 0 -11 z" fill="#8FD0F4" />
+        </g>
+      ) : (
+        <g>
+          <ellipse cx="46" cy="65" rx="7.5" ry="9.6" fill="#3B2E28" />
+          <ellipse cx="74" cy="65" rx="7.5" ry="9.6" fill="#3B2E28" />
+          <circle cx="43.4" cy="61" r="3.2" fill="#fff" />
+          <circle cx="71.4" cy="61" r="3.2" fill="#fff" />
+          <circle cx="48.6" cy="68.5" r="1.6" fill="#fff" opacity="0.85" />
+          <circle cx="76.6" cy="68.5" r="1.6" fill="#fff" opacity="0.85" />
+        </g>
+      )}
+      <path d="M57 74 h6 l-3 3.2 z" fill="#E9868F" />
+      {sick ? <path d="M56 80 q4 -3 8 0" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" /> : <g><path d="M60 77.5 q-3.6 4 -7 1" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" /><path d="M60 77.5 q3.6 4 7 1" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" /></g>}
+      {has("glasses") ? <g fill="none" stroke="#5A4A42" strokeWidth="2"><circle cx="46" cy="65" r="11" /><circle cx="74" cy="65" r="11" /><path d="M57 65 h6" /></g> : null}
+      {has("flower") ? <g><g fill="#FF8FB0"><circle cx="30" cy="17" r="3.4" /><circle cx="37" cy="17" r="3.4" /><circle cx="33.5" cy="12" r="3.4" /><circle cx="30.5" cy="22" r="3.4" /><circle cx="36.5" cy="22" r="3.4" /></g><circle cx="33.5" cy="17.5" r="2.6" fill="#FFD54F" /></g> : null}
+      {has("ribbon") ? <g><path d="M50 40 L36 33 L36 49 Z" fill="#FF6F91" /><path d="M70 40 L84 33 L84 49 Z" fill="#FF6F91" /><circle cx="60" cy="41" r="5.5" fill="#F04E77" /></g> : null}
+      {has("hat") ? <g><path d="M60 1 L77 26 L43 26 Z" fill="#7C6FF0" /><circle cx="60" cy="1" r="4" fill="#FFD54F" /></g> : null}
+      {has("crown") ? <g><path d="M37 24 L45 7 L60 20 L75 7 L83 24 Z" fill="#FFD54F" stroke="#F4A81C" strokeWidth="1.5" strokeLinejoin="round" /><circle cx="60" cy="14" r="2.8" fill="#FF6F91" /></g> : null}
+      {p.happy && !sick ? <g fill="#FFD54F"><path d="M13 44 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2 z" /><path d="M105 34 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 z" /></g> : null}
+    </g>
+  );
+}
+function Hamster(p) {
+  var lvl = p.level || 1; var stage = petStage(lvl);
+  var sc = [0.86, 0.94, 1.0, 1.06][stage];
+  var sz = p.size || 160;
+  return (
+    <svg viewBox="0 0 120 128" width={sz} height={sz} style={{ display: "block", overflow: "visible" }}>
+      <ellipse cx="60" cy="121" rx={40 * sc} ry="6" fill="rgba(0,0,0,0.07)" />
+      {HamsterBody({ level: p.level, items: p.items, sick: p.sick, happy: p.happy })}
+    </svg>
+  );
+}
+function HamsterRoom(p) {
+  var items = p.items || []; var has = function (id) { return items.indexOf(id) >= 0; };
+  var w = p.width || 260;
+  return (
+    <svg viewBox="0 0 200 172" width={w} style={{ display: "block", maxWidth: "100%", borderRadius: 14, overflow: "visible" }}>
+      <rect x="0" y="0" width="200" height="118" rx="10" fill="#FBEFDD" />
+      <rect x="0" y="118" width="200" height="54" fill="#E7C9A0" />
+      <rect x="0" y="115" width="200" height="4" fill="#D8B589" />
+      {has("window") ? <g><rect x="22" y="20" width="46" height="42" rx="3" fill="#BFE6FF" stroke="#fff" strokeWidth="4" /><path d="M45 20 V62 M22 41 H68" stroke="#fff" strokeWidth="4" /><circle cx="58" cy="30" r="4" fill="#FFE9A8" /></g> : null}
+      {has("balloon") ? <g><ellipse cx="176" cy="34" rx="9" ry="11" fill="#FF8FB0" /><path d="M176 45 V64" stroke="#C9A" strokeWidth="1" /></g> : null}
+      {has("house") ? <g><rect x="16" y="92" width="40" height="26" rx="3" fill="#E68A6B" /><path d="M12 92 L36 74 L60 92 Z" fill="#C56A50" /><ellipse cx="36" cy="108" rx="8" ry="9" fill="#7A3B2B" /></g> : null}
+      {has("wheel") ? <g><g stroke="#AEB6C0" strokeWidth="3" fill="none"><circle cx="170" cy="96" r="20" /><path d="M170 76 V116 M150 96 H190 M156 82 L184 110 M184 82 L156 110" /></g><rect x="164" y="115" width="12" height="4" rx="2" fill="#AEB6C0" /></g> : null}
+      {has("plant") ? <g><rect x="176" y="128" width="16" height="15" rx="2" fill="#D98E5A" /><path d="M184 128 q-10 -16 -4 -24 q7 7 4 24" fill="#77B255" /><path d="M184 128 q10 -14 3 -22 q-5 7 -3 22" fill="#5EA043" /></g> : null}
+      {has("rug") ? <g><ellipse cx="100" cy="150" rx="54" ry="14" fill="#FFB6CE" /><ellipse cx="100" cy="150" rx="41" ry="9" fill="#FFD3E0" /></g> : null}
+      <g transform="translate(46 42) scale(0.9)">{HamsterBody({ level: p.level, items: items, sick: p.sick, happy: p.happy })}</g>
+    </svg>
+  );
+}
+function PetTab(p) {
+  var ch = p.ch, data = p.data, save = p.save, isP = p.isP;
+  const [nameEdit, setNameEdit] = useState(false);
+  const [nameVal, setNameVal] = useState("");
+  const [speech, setSpeech] = useState("");
+  var pet = (data.pet && data.pet[ch.id]) || null;
+  var seeds = petSeedsOf(data, ch.id);
+  var exp = (pet && pet.exp) || 0;
+  var fed = (pet && pet.fed) || 0;
+  var hearts = (pet && pet.hearts) || 0;
+  var name = (pet && pet.name) || "";
+  var items = (pet && pet.items) || [];
+  var equip = (pet && pet.equip) || [];
+  var level = petLevel(exp);
+  var genki = petGenki(data, ch.id);
+  var gs = petGenkiState(genki);
+  var sick = genki < 40;
+  var T = petThresholds();
+  var base = T[level - 1] || 0;
+  var next = (T[level] != null) ? T[level] : base;
+  var toNext = Math.max(0, next - exp);
+  var prog = next > base ? Math.min(100, Math.round((exp - base) / (next - base) * 100)) : 100;
+  function ensurePet(d) { if (!d.pet) d.pet = {}; if (!d.pet[ch.id]) d.pet[ch.id] = { name: "", exp: 0, fed: 0, spent: 0, hearts: 0, born: TD, genki: 100, genkiDate: TD, items: [], equip: [] }; var pp = d.pet[ch.id]; if (pp.items == null) pp.items = []; if (pp.equip == null) pp.equip = []; if (pp.spent == null) pp.spent = 0; return d; }
+  useEffect(function () { var L = petLines({ name: (pet && pet.name) || "", level: level, seeds: seeds, hearts: hearts, genki: genki }); setSpeech(L[Math.floor(Math.random() * L.length)]); }, [ch.id]);
+  useEffect(function () { var pt = data.pet && data.pet[ch.id]; if (!pt) return; if (pt.genki !== genki || pt.genkiDate !== TD) { var d = clone(data); ensurePet(d); d.pet[ch.id].genki = genki; d.pet[ch.id].genkiDate = TD; save(d); } }, [ch.id]);
+  var talk = function () { var L = petLines({ name: name, level: level, seeds: petSeedsOf(data, ch.id), hearts: hearts, genki: petGenki(data, ch.id) }); setSpeech(L[Math.floor(Math.random() * L.length)]); };
+  var doFeed = function (n) {
+    if (seeds <= 0) return; var give = Math.min(n, seeds);
+    var d = clone(data); ensurePet(d);
+    var before = petLevel(d.pet[ch.id].exp || 0);
+    d.pet[ch.id].spent = (d.pet[ch.id].spent || 0) + give;
+    d.pet[ch.id].fed = (d.pet[ch.id].fed || 0) + give;
+    d.pet[ch.id].exp = (d.pet[ch.id].exp || 0) + give;
+    d.pet[ch.id].hearts = (d.pet[ch.id].hearts || 0) + give;
+    var after = petLevel(d.pet[ch.id].exp);
+    save(d);
+    setSpeech(after > before ? ("🎉 レベル" + after + "に なったよ！ ありがとう！") : PET_EAT[Math.floor(Math.random() * PET_EAT.length)]);
+  };
+  var buyAcc = function (acc) {
+    if (seeds < acc.cost || items.indexOf(acc.id) >= 0) return;
+    var d = clone(data); ensurePet(d);
+    d.pet[ch.id].spent = (d.pet[ch.id].spent || 0) + acc.cost;
+    d.pet[ch.id].items.push(acc.id); d.pet[ch.id].equip.push(acc.id);
+    save(d); setSpeech("わーい！ " + acc.name + " ありがとう♪");
+  };
+  var toggleEquip = function (id) { var d = clone(data); ensurePet(d); var eq = d.pet[ch.id].equip; var i = eq.indexOf(id); if (i >= 0) eq.splice(i, 1); else eq.push(id); save(d); };
+  var startName = function () { setNameVal(name); setNameEdit(true); };
+  var saveName = function () { var d = clone(data); ensurePet(d); d.pet[ch.id].name = (nameVal || "").slice(0, 10); save(d); setNameEdit(false); };
+  var born = (pet && pet.born) || TD;
+  var days = Math.max(1, Math.round((new Date(TD) - new Date(born)) / 86400000) + 1);
+  return (
+    <div style={{ animation: "fadeIn .3s ease" }}>
+      <div style={{ ...S.card, background: "linear-gradient(135deg,#FFF3E0,#FFFDF8)", textAlign: "center" }}>
+        {nameEdit ? (
+          <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 6 }}>
+            <input value={nameVal} onChange={function (e) { setNameVal(e.target.value); }} placeholder="なまえ" maxLength={10} style={{ ...S.input, width: 140, textAlign: "center" }} />
+            <button onClick={saveName} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>OK</button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", alignItems: "center", marginBottom: 2 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#6D4C41" }}>{name ? name : "なまえをつけてね"}</div>
+            <button onClick={startName} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13 }}>✏️</button>
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: "#BB7799" }}>Lv.{level}・{petStageName(level)}</div>
+        <div style={{ maxWidth: 220, margin: "4px auto 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}><span style={{ color: gs.color, fontWeight: 800 }}>{sick ? "🤒 " : "💚 "}げんき：{gs.label}</span><span style={{ color: "#bbb" }}>{genki}</span></div>
+          <div style={{ height: 8, background: "#eee", borderRadius: 4, overflow: "hidden" }}><div style={{ height: "100%", width: genki + "%", background: gs.color, transition: "width .4s" }} /></div>
+        </div>
+        <div style={{ position: "relative", maxWidth: 240, margin: "8px auto 0", minHeight: 44 }}>
+          <div style={{ display: "inline-block", background: "#fff", border: "2px solid #FFCC80", borderRadius: 16, padding: "8px 14px", fontSize: 13, fontWeight: 700, color: "#6D4C41", boxShadow: "0 2px 8px rgba(0,0,0,.06)" }}>{speech}</div>
+          <div style={{ position: "absolute", left: "50%", bottom: -8, transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "9px solid #FFCC80" }} />
+        </div>
+        <div onClick={talk} style={{ display: "flex", justifyContent: "center", margin: "2px 0 0", cursor: "pointer" }} title="タッチしてね">
+          <HamsterRoom level={level} items={equip} sick={sick} width={280} />
+        </div>
+        <div style={{ fontSize: 10, color: "#c9a", marginTop: -4 }}>🐹 タッチすると おはなしするよ</div>
+        {sick ? <div style={{ fontSize: 11, color: "#E53935", fontWeight: 700, marginTop: 6 }}>びょうきみたい…。べんきょうすると だんだん げんきに なるよ！</div> : null}
+        <div style={{ maxWidth: 220, margin: "8px auto 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#aaa" }}><span>Lv.{level}</span><span>つぎまで {toNext}</span></div>
+          <div style={{ height: 8, background: "#F0E4D0", borderRadius: 4, overflow: "hidden" }}><div style={{ height: "100%", width: prog + "%", background: "#FB8C00", transition: "width .4s" }} /></div>
+        </div>
+      </div>
+      <div style={{ ...S.card }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#6D4C41" }}>🌻 ひまわりのたね <b style={{ color: "#FB8C00", fontSize: 18 }}>{seeds}</b> こ</div>
+          <div style={{ fontSize: 11, color: "#aaa" }}>べんきょうで もらえる</div>
+        </div>
+        {seeds > 0 ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={function () { doFeed(1); }} style={{ ...S.subBtn, background: "#FB8C00", flex: 1 }}>🍚 ごはんをあげる（たね1こ）</button>
+            {seeds > 1 ? <button onClick={function () { doFeed(seeds); }} style={{ ...S.smBtn, background: "#FFE0B2", color: "#E65100" }}>ぜんぶ（{seeds}）</button> : null}
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", fontSize: 12, color: "#bbb", padding: "8px 0" }}>たねが ないよ。べんきょうを がんばると もらえるよ！</div>
+        )}
+      </div>
+      <div style={{ ...S.card }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#6D4C41" }}>🎀 ひまわりのたねで こうかん</div>
+        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 6 }}>たね 10こ で 1つ こうかんできるよ</div>
+        {[{ k: "wear", t: "🎀 みにつけるもの" }, { k: "room", t: "🏠 へやのもの" }].map(function (grp) {
+          return (
+            <div key={grp.k} style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#8D6E63", margin: "6px 0 4px" }}>{grp.t}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {PET_ACC.filter(function (a) { return a.cat === grp.k; }).map(function (acc) {
+                  var owned = items.indexOf(acc.id) >= 0; var on = equip.indexOf(acc.id) >= 0;
+                  return (
+                    <div key={acc.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 10, background: "#FAFAFA" }}>
+                      <span style={{ fontSize: 18 }}>{acc.emoji}</span>
+                      <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#6D4C41" }}>{acc.name}</div>
+                      {owned ? (
+                        <button onClick={function () { toggleEquip(acc.id); }} style={{ ...S.smBtn, background: on ? ch.color : "#eee", color: on ? "#fff" : "#666" }}>{on ? "つけてる" : "つける"}</button>
+                      ) : (
+                        <button onClick={function () { buyAcc(acc); }} disabled={seeds < acc.cost} style={{ ...S.smBtn, background: seeds >= acc.cost ? "#FB8C00" : "#eee", color: seeds >= acc.cost ? "#fff" : "#bbb" }}>🌻 {acc.cost}こ</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ ...S.card, display: "flex", justifyContent: "space-around", textAlign: "center" }}>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: "#E74860" }}>{hearts}</div><div style={{ fontSize: 10, color: "#999" }}>なかよし❤️</div></div>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: "#FB8C00" }}>{fed}</div><div style={{ fontSize: 10, color: "#999" }}>たべたたね</div></div>
+        <div><div style={{ fontSize: 18, fontWeight: 800, color: "#7C6FF0" }}>{days}</div><div style={{ fontSize: 10, color: "#999" }}>いっしょの日</div></div>
+      </div>
+      {isP ? <div style={{ fontSize: 10, color: "#bbb", textAlign: "center", marginTop: 4, lineHeight: 1.5 }}>※ひまわりのたね＝獲得ポイント総数−つかった数。げんきは平日に学習すると回復、さぼると減ります（土日・お休みは減りません）。ごほうびポイントとは別会計です。</div> : null}
+    </div>
+  );
+}
 function HomeTab(p) {
   var ch = p.ch, data = p.data, save = p.save, isP = p.isP, setTab = p.setTab;
   var isM = ch.mode === "managed";
@@ -1822,6 +2087,15 @@ function HomeTab(p) {
   };
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
+      {isM && ch.id === "yuzuki" && (
+        <div onClick={function () { setTab("pet"); }} style={{ ...S.card, display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "linear-gradient(135deg,#FFF3E0,#FFFDF8)" }}>
+          <Hamster level={petLevel((data.pet && data.pet[ch.id] && data.pet[ch.id].exp) || 0)} items={(data.pet && data.pet[ch.id] && data.pet[ch.id].equip) || []} sick={petGenki(data, ch.id) < 40} size={64} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#6D4C41" }}>{(data.pet && data.pet[ch.id] && data.pet[ch.id].name) || "ハムスター"}<span style={{ fontSize: 11, color: "#BB7799", marginLeft: 6 }}>Lv.{petLevel((data.pet && data.pet[ch.id] && data.pet[ch.id].exp) || 0)}</span></div>
+            <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}><span style={{ color: petGenkiState(petGenki(data, ch.id)).color }}>{petGenki(data, ch.id) < 40 ? "🤒 げんきがない…" : "💚 げんき"}</span><span style={{ color: "#FB8C00" }}> ・🌻 {petSeedsOf(data, ch.id)}こ ▶</span></div>
+          </div>
+        </div>
+      )}
       {/* Stats */}
       <div style={{ ...S.card, background: "linear-gradient(135deg," + ch.colorLight + ",white)" }}>
         <div style={{ fontSize: 16, fontWeight: 800 }}>{ch.emoji} {ch.name}（{ch.grade}）</div>
