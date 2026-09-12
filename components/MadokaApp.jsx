@@ -1793,15 +1793,16 @@ function PetTab(p) {
     <div style={{ animation: "fadeIn .3s ease" }}>
       <div style={{ ...S.card, background: "linear-gradient(135deg,#FFF3E0,#FFFDF8)", textAlign: "center" }}>
         {nameEdit ? (
-          <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 6 }}>
-            <input value={nameVal} onChange={function (e) { setNameVal(e.target.value); }} placeholder="なまえ" maxLength={10} style={{ ...S.input, width: 140, textAlign: "center" }} />
-            <button onClick={saveName} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>OK</button>
+          <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+            <input value={nameVal} autoFocus onChange={function (e) { setNameVal(e.target.value); }} onKeyDown={function (e) { if (e.key === "Enter") saveName(); }} placeholder="なまえ" maxLength={10} style={{ ...S.input, width: 150, textAlign: "center", fontSize: 16 }} />
+            <button onClick={saveName} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>けってい</button>
+            <button onClick={function () { setNameEdit(false); }} style={{ ...S.smBtn, background: "#eee", color: "#999" }}>やめる</button>
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 8, justifyContent: "center", alignItems: "center", marginBottom: 2 }}>
-            <div style={{ fontSize: 17, fontWeight: 800, color: "#6D4C41" }}>{name ? name : "なまえをつけてね"}</div>
-            <button onClick={startName} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13 }}>✏️</button>
-          </div>
+          <button onClick={startName} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", border: "1.5px solid #FFCC80", borderRadius: 12, padding: "6px 14px", cursor: "pointer", fontFamily: "inherit", marginBottom: 2 }}>
+            <span style={{ fontSize: 17, fontWeight: 800, color: name ? "#6D4C41" : "#E68A5C" }}>{name ? name : "なまえをつけてね"}</span>
+            <span style={{ fontSize: 13 }}>✏️</span>
+          </button>
         )}
         <div style={{ fontSize: 11, color: "#BB7799" }}>Lv.{level}・{petStageName(level)}</div>
         <div style={{ maxWidth: 220, margin: "4px auto 0" }}>
