@@ -1629,7 +1629,7 @@ function petLevel(exp) { var t = petThresholds(); var lv = 1; for (var i = 0; i 
 function petStage(level) { return level >= 10 ? 3 : level >= 6 ? 2 : level >= 3 ? 1 : 0; }
 function petStageName(level) { return ["赤ちゃん", "こども", "おとな", "たいしょう"][petStage(level)]; }
 function petEarnedOf(data, chId) { var hist = (data.points && data.points[chId] && data.points[chId].history) || []; return hist.reduce(function (s, h) { return s + (h.type === "earn" ? (h.amount || 0) : (h.type === "undo" ? -(h.amount || 0) : 0)); }, 0); }
-function petSeedsOf(data, chId) { var pet = data.pet && data.pet[chId]; var spent = (pet && pet.spent) || 0; var baseB = (pet && pet.seedBase != null) ? pet.seedBase : 0; return Math.max(0, petEarnedOf(data, chId) - baseB - spent); }
+function petSeedsOf(data, chId) { var pet = data.pet && data.pet[chId]; var spent = (pet && pet.spent) || 0; var earned = petEarnedOf(data, chId); var baseB = (pet && pet.seedBase != null) ? pet.seedBase : (earned - 5); return Math.max(0, earned - baseB - spent); }
 function petParseYmd(ds) { var a = (ds || "").split("-"); return new Date(+a[0] || 2020, (+a[1] || 1) - 1, +a[2] || 1); }
 function petStudiedOn(data, chId, ds) { var hist = (data.points && data.points[chId] && data.points[chId].history) || []; for (var i = 0; i < hist.length; i++) { if (hist[i].type === "earn" && hist[i].date === ds) return true; } return false; }
 function petGenki(data, chId) {
@@ -1763,7 +1763,7 @@ function PetTab(p) {
   var prog = next > base ? Math.min(100, Math.round((exp - base) / (next - base) * 100)) : 100;
   function ensurePet(d) { if (!d.pet) d.pet = {}; if (!d.pet[ch.id]) d.pet[ch.id] = { name: "", exp: 0, fed: 0, spent: 0, hearts: 0, born: TD, genki: 100, genkiDate: TD, items: [], equip: [], seedBase: petEarnedOf(d, ch.id) - 5 }; var pp = d.pet[ch.id]; if (pp.items == null) pp.items = []; if (pp.equip == null) pp.equip = []; if (pp.spent == null) pp.spent = 0; if (pp.seedBase == null) pp.seedBase = petEarnedOf(d, ch.id) - 5; return d; }
   useEffect(function () { var L = petLines({ name: (pet && pet.name) || "", level: level, seeds: seeds, hearts: hearts, genki: genki, child: ch.name }); setSpeech(L[Math.floor(Math.random() * L.length)]); }, [ch.id]);
-  useEffect(function () { var pt = data.pet && data.pet[ch.id]; if (!pt) return; if (pt.genki !== genki || pt.genkiDate !== TD) { var d = clone(data); ensurePet(d); d.pet[ch.id].genki = genki; d.pet[ch.id].genkiDate = TD; save(d); } }, [ch.id]);
+  useEffect(function () { var cur = data.pet && data.pet[ch.id]; var g = petGenki(data, ch.id); var need = (!cur) || (cur.seedBase == null) || (cur.genki !== g) || (cur.genkiDate !== TD); if (!need) return; var d = clone(data); ensurePet(d); d.pet[ch.id].genki = g; d.pet[ch.id].genkiDate = TD; save(d); }, [ch.id]);
   var talk = function () { var L = petLines({ name: name, level: level, seeds: petSeedsOf(data, ch.id), hearts: hearts, genki: petGenki(data, ch.id), child: ch.name }); setSpeech(L[Math.floor(Math.random() * L.length)]); };
   var doFeed = function (n) {
     if (seeds <= 0) return; var give = Math.min(n, seeds);
