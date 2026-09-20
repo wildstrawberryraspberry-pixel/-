@@ -1157,7 +1157,7 @@ function WeekPlanCard(p) {
   var kanjiDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   var kanjiGraded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_graded"]);
   var _noteSt = srsSettings(data, ch.id);
-  var noteOn = (ch.id === "eishi" || ch.id === "yuzuki") && _noteSt.noteOn !== false && !todayRest;
+  var noteOn = (ch.id === "eishi" || ch.id === "yuzuki") && _noteSt.noteOn !== false && !todayRest && isKanjiTestDay(TD); // 2026-09-20 土日はノートを出さない（平日のみ）
   var _noteCustAll = (data.kanjiNoteCustom && data.kanjiNoteCustom[ch.id]) || null;
   if (Array.isArray(_noteCustAll)) _noteCustAll = null;
   var noteCustom = (_noteCustAll && _noteCustAll[TD]) || null;
@@ -1167,6 +1167,22 @@ function WeekPlanCard(p) {
   var noteList = noteOn ? ((noteCustom && noteCustom.length) ? noteCustom.slice() : kanjiWeakList(data, ch.id, TD, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay)) : [];
   var noteDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_note"]);
   var kanjiResults = (data.kanjiTestResults && data.kanjiTestResults[ch.id] && data.kanjiTestResults[ch.id][TD]) || null;
+  // 2026-09-20 さかのぼり：やり残した平日のにがて漢字ノートを拾う
+  var noteListForDate = function (ds) { var cu = _noteCustAll && _noteCustAll[ds]; return (cu && cu.length) ? cu.slice() : kanjiWeakList(data, ch.id, ds, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay); };
+  var noteMissed = [];
+  if (noteOn) {
+    for (var _mi = 14; _mi >= 1; _mi--) {
+      var _mdt = new Date(NOW); _mdt.setDate(_mdt.getDate() - _mi);
+      var _mds = _mdt.getFullYear() + "-" + String(_mdt.getMonth() + 1).padStart(2, "0") + "-" + String(_mdt.getDate()).padStart(2, "0");
+      if (!isKanjiTestDay(_mds)) continue; // 土日は出さない
+      if (restSet[_mds]) continue; // お休みの日は出さない
+      var _mdone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_mds] && data.todayChecks[ch.id][_mds]["kanji_note"]);
+      if (_mdone) continue;
+      var _mlist = noteListForDate(_mds);
+      if (!_mlist || !_mlist.length) continue;
+      noteMissed.push({ ds: _mds, list: _mlist, label: (_mdt.getMonth() + 1) + "/" + _mdt.getDate() + "（" + dayNames[(_mdt.getDay() + 6) % 7] + "）" });
+    }
+  }
   // 週プールのタスクを曜日べつに編集（名前・目安時間・曜日の変更）。今週・来週の両方で使う（2026-08-17）
   var startEdit = function (t, scope) {
     setEditId(t.id); setEditScope(scope);
@@ -1239,27 +1255,31 @@ function WeekPlanCard(p) {
     save(d);
     setKanjiTestIdx(-1);
   };
-  var finishKanjiNote = function () {
-    if (noteDone) return;
+  var finishKanjiNote = function (dt) {
+    var target = (typeof dt === "string" && dt) ? dt : TD;
+    var already = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][target] && data.todayChecks[ch.id][target]["kanji_note"]);
+    if (already) return;
+    var lst = target === TD ? noteList : noteListForDate(target);
     var d = clone(data);
     if (!d.todayChecks) d.todayChecks = {};
     if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
-    if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
-    d.todayChecks[ch.id][TD]["kanji_note"] = true;
-    d.todayChecks[ch.id][TD]["label_kanji_note"] = "にがて漢字ノート（" + noteList.length + "字）";
+    if (!d.todayChecks[ch.id][target]) d.todayChecks[ch.id][target] = {};
+    d.todayChecks[ch.id][target]["kanji_note"] = true;
+    d.todayChecks[ch.id][target]["label_kanji_note"] = "にがて漢字ノート（" + lst.length + "字）";
     ensurePts(d, ch.id);
     var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
     var ptId = "kn" + Date.now();
     d.points[ch.id].balance += ptAmt;
     if (!d.points[ch.id].history) d.points[ch.id].history = [];
-    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: "にがて漢字ノート", date: TD, id: ptId });
-    d.todayChecks[ch.id][TD]["kanji_note_pt"] = ptId;
-    d.todayChecks[ch.id][TD]["kanji_note_ptAmt"] = ptAmt;
+    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: "にがて漢字ノート", date: target, id: ptId });
+    d.todayChecks[ch.id][target]["kanji_note_pt"] = ptId;
+    d.todayChecks[ch.id][target]["kanji_note_ptAmt"] = ptAmt;
     save(d);
   };
-  var undoKanjiNote = function () {
+  var undoKanjiNote = function (dt) {
+    var target = (typeof dt === "string" && dt) ? dt : TD;
     var d = clone(data);
-    var tc = (d.todayChecks && d.todayChecks[ch.id] && d.todayChecks[ch.id][TD]) || null;
+    var tc = (d.todayChecks && d.todayChecks[ch.id] && d.todayChecks[ch.id][target]) || null;
     if (!tc) { save(d); return; }
     var ptId = tc["kanji_note_pt"]; var amt = tc["kanji_note_ptAmt"] || 0;
     if (ptId && d.points && d.points[ch.id]) { d.points[ch.id].history = (d.points[ch.id].history || []).filter(function (h) { return h.id !== ptId; }); d.points[ch.id].balance = Math.max(0, (d.points[ch.id].balance || 0) - amt); }
@@ -1423,8 +1443,8 @@ function WeekPlanCard(p) {
                         );
                       })}
                     </div>
-                    {!noteDone && <button onClick={finishKanjiNote} style={{ ...S.subBtn, background: "#FB8C00", marginTop: 10 }}><Kid t={"✍️ ぜんぶ書けた！"} ch={ch} data={data} on={!isP} /></button>}
-                    {noteDone && isP && <button onClick={undoKanjiNote} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", marginTop: 10 }}>↩ やり直し</button>}
+                    {!noteDone && <button onClick={function () { finishKanjiNote(TD); }} style={{ ...S.subBtn, background: "#FB8C00", marginTop: 10 }}><Kid t={"✍️ ぜんぶ書けた！"} ch={ch} data={data} on={!isP} /></button>}
+                    {noteDone && isP && <button onClick={function () { undoKanjiNote(TD); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", marginTop: 10 }}>↩ やり直し</button>}
                   </div>
                 )}
               </div>
@@ -1435,6 +1455,29 @@ function WeekPlanCard(p) {
                 <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through", opacity: .6 }}><Kid t={"にがて漢字ノート"} ch={ch} data={data} on={!isP} /></div>
               </div>
             )}
+            {noteMissed.map(function (mn) {
+              return (
+                <div key={mn.ds} style={{ background: "#FFF3E0", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6, border: "1px dashed #FFB74D" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 16 }}>📅</span>
+                    <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#E65100" }}><Kid t={mn.label + "のにがて漢字ノート（" + mn.list.length + "字）"} ch={ch} data={data} on={!isP} /></div>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#EF6C00", background: "#FFE0B2", borderRadius: 8, padding: "2px 8px" }}>やり残し</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#999", marginBottom: 8 }}><Kid t={"この日のぶんを、いまからやってもOK！"} ch={ch} data={data} on={!isP} /></div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {mn.list.map(function (it, i) {
+                      return (
+                        <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", background: "#fff", borderRadius: 10, padding: "6px 10px", border: "1px solid #f0e0d0", minWidth: 50 }}>
+                          <span style={{ fontSize: 24, fontWeight: 900, color: ch.color, lineHeight: 1.1 }}>{it.word}</span>
+                          {it.reading ? <span style={{ fontSize: 10, color: "#aaa", marginTop: 2 }}>{it.reading}</span> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button onClick={function () { finishKanjiNote(mn.ds); }} style={{ ...S.subBtn, background: "#FB8C00", marginTop: 10 }}><Kid t={"✍️ この日のぶん、書けた！"} ch={ch} data={data} on={!isP} /></button>
+                </div>
+              );
+            })}
             {todayList.map(rowU)}
             {todayList.length === 0 && !(kanjiDue && !kanjiDone) && <div style={{ fontSize: 11, color: "#bbb", padding: "6px 0" }}><Kid t={"今日のぶんはおわったよ！"} ch={ch} data={data} on={!isP} /></div>}
           </div>
@@ -4943,7 +4986,39 @@ function KanjiTab(p) {
               {(function () {
                 var _sel = gradeDays.find(function (g) { return g.date === gradeDate; });
                 var selLabel = _sel ? _sel.label : "今日";
-                if (selDone) return <div style={{ textAlign: "center", padding: 16, color: "#4CAF50", fontSize: 13, fontWeight: 700 }}>✅ {selLabel}のテストは採点ずみです</div>;
+                if (selDone) {
+                  var _rq = readKanjiQ(data, ch.id, gradeDate);
+                  var _rr = (data.kanjiTestResults && data.kanjiTestResults[ch.id] && data.kanjiTestResults[ch.id][gradeDate]) || {};
+                  var _rok = _rq.filter(function (k) { return _rr[k.id]; }).length;
+                  return (
+                    <div>
+                      <div style={{ textAlign: "center", padding: "6px 0 10px", color: "#4CAF50", fontSize: 13, fontWeight: 700 }}>✅ {selLabel}のテストは採点ずみです</div>
+                      {_rq.length > 0 ? (
+                        <div>
+                          <div style={{ fontSize: 12, color: "#666", marginBottom: 8, textAlign: "center" }}>この日のテスト内容と結果　<b style={{ color: "#4CAF50" }}>○{_rok}</b> / {_rq.length}</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                            {_rq.map(function (k, i) {
+                              var correct = _rr[k.id];
+                              return (
+                                <div key={k.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 10, background: correct ? "#E8F5E9" : "#FFEBEE", border: "1.5px solid " + (correct ? "#4CAF50" : "#E53935") }}>
+                                  <div style={{ fontSize: 14, color: "#999", fontWeight: 700, minWidth: 20 }}>{circledNum(i)}</div>
+                                  <div style={{ fontSize: 22 }}>{correct ? "○" : "×"}</div>
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 18, fontWeight: 900 }}>{k.kanji}</div>
+                                    {k.reading && <div style={{ fontSize: 12, color: "#888" }}>{k.reading}</div>}
+                                    {k.sentence && <div style={{ fontSize: 11, color: "#aaa", marginTop: 2 }}>{k.sentence}</div>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 12, color: "#bbb", textAlign: "center", padding: 8 }}>この日の問題データは保存されていません。</div>
+                      )}
+                    </div>
+                  );
+                }
                 if (selCount === 0) return <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 12 }}>{selLabel}は出題できる語がありません。読みを設定してください。</div>;
                 return (
                   <div>
