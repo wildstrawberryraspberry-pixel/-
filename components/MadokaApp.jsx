@@ -46,7 +46,9 @@ function chalMonth(wb) { var m = parseInt(wb && wb.issueMonth, 10); return (m >=
 function chalTag(wb) { return chalMonth(wb) + "月号"; }
 // 2026-08-22 チャレンジの「回ごと」完了管理（飛ばし対応）。doneNums=完了した回番号の配列。doneUnits は互換のため件数を同期。
 function chalDoneNums(wb) { if (wb && wb.doneNums && wb.doneNums.length !== undefined) return wb.doneNums; var a = []; var du = (wb && wb.doneUnits) || 0; for (var i = 1; i <= du; i++) a.push(i); return a; }
-function nextUnitNum(wb) { var s = chalDoneNums(wb); var tot = (wb && wb.totalUnits) || 0; for (var n = 1; n <= tot; n++) { if (s.indexOf(n) < 0) return n; } return 0; }
+// 2026-09-21 前方進行に変更：やった回の最大＋1から次を探す（飛ばした古い回を毎日むし返さない）。
+// 前方に空きが無ければ、最後に飛ばした回（穴）を埋める。何も無ければ0。
+function nextUnitNum(wb) { var s = chalDoneNums(wb); var tot = (wb && wb.totalUnits) || 0; var mx = 0; for (var i = 0; i < s.length; i++) { if (s[i] > mx) mx = s[i]; } for (var n = mx + 1; n <= tot; n++) { if (s.indexOf(n) < 0) return n; } for (var m = 1; m <= tot; m++) { if (s.indexOf(m) < 0) return m; } return 0; }
 function markUnitDone(wb, n) { n = parseInt(n, 10); if (!(n >= 1)) return; if (!wb.doneNums || wb.doneNums.length === undefined) wb.doneNums = chalDoneNums(wb).slice(); if (wb.doneNums.indexOf(n) < 0) wb.doneNums.push(n); wb.doneNums.sort(function (a, b) { return a - b; }); wb.doneUnits = wb.doneNums.length; }
 function unmarkUnitDone(wb, n) { if (!wb.doneNums || wb.doneNums.length === undefined) wb.doneNums = chalDoneNums(wb).slice(); n = parseInt(n, 10); if (n >= 1) { var i = wb.doneNums.indexOf(n); if (i >= 0) wb.doneNums.splice(i, 1); } else if (wb.doneNums.length) { wb.doneNums.pop(); } wb.doneUnits = wb.doneNums.length; }
 function skippedUnits(wb) { var s = chalDoneNums(wb); if (!s.length) return []; var mx = Math.max.apply(null, s); var out = []; for (var n = 1; n < mx; n++) { if (s.indexOf(n) < 0) out.push(n); } return out; }
@@ -557,21 +559,35 @@ function pickWordForChar(ch, char, seed, known) {
   var wpk = srsPick(pool, seed + ":" + char) || pool[0];
   return { word: wpk.word, reading: wpk.reading || "", sentence: wpk.example || "" };
 }
+// 2026-09-21 日付→通し日数（決定的・端末非依存）。にがて漢字ノートの日替わりローテーションに使う。
+function dayIndexOf(ds) { var p = String(ds || "").split("-"); if (p.length < 3) return 0; var y = parseInt(p[0], 10), m = parseInt(p[1], 10), dd = parseInt(p[2], 10); if (!(y && m && dd)) return 0; return Math.floor(Date.UTC(y, m - 1, dd) / 86400000); }
+// 2026-09-21 改修：やらない日が続いても毎日同じ課題にならないよう、
+//  ・テストで間違えた字（間違えた漢字リストの未定着＋SRSで間違えた既習字）＝毎日維持
+//  ・今習っている字（集中/focus）＝中心に毎日
+//  ・そのほかの復習字＝日付でローテーション（昨日と同じ顔ぶれにしない）
 function kanjiWeakList(data, chId, date, n) {
   var ch = childById(chId); if (!ch) return [];
-  var cand = {};
-  function bump(c, score) { if (!isKanjiC(c)) return; if (cand[c] == null || score > cand[c]) cand[c] = score; }
-  // ① 間違えた漢字リスト（未定着）＝苦手として最優先
-  var list = (data.kanjiList && data.kanjiList[chId]) || [];
-  list.forEach(function (k) { if (k.completed || !isKanjiC(k.kanji)) return; bump(k.kanji, 200 + (k.wrong || 0) * 50 - (k.correctStreak || 0)); });
-  // ② SRSで間違えた/箱が低い既習字
+  n = Math.max(0, n || 0);
   var srs = (data.kanjiSRS && data.kanjiSRS[chId]) || {};
-  Object.keys(srs).forEach(function (c) { var st = srs[c]; if (!st || !st.taught) return; var box = st.box || 0; var wrong = st.wrong || 0; if (box >= SRS_MASTER_BOX) return; if (wrong < 1 && box > 2) return; bump(c, 100 + wrong * 50 + (SRS_MASTER_BOX - box) * 3); });
-  // ③ 埋め合わせ（N字に満たない日）：今の単元(集中)→そのほかの既習
-  Object.keys(srs).forEach(function (c) { var st = srs[c]; if (!st || !st.taught) return; if ((st.box || 0) >= SRS_MASTER_BOX || cand[c] != null) return; bump(c, (st.focus ? 40 : 10) + (SRS_MASTER_BOX - (st.box || 0))); });
-  var arr = Object.keys(cand).map(function (c) { return { kanji: c, score: cand[c] }; });
-  arr.sort(function (a, b) { if (b.score !== a.score) return b.score - a.score; return kanjiSortKey(a.kanji).localeCompare(kanjiSortKey(b.kanji), "ja"); });
-  arr = arr.slice(0, Math.max(0, n || 0));
+  var used = {};
+  function bySortKey(a, b) { return kanjiSortKey(a.kanji).localeCompare(kanjiSortKey(b.kanji), "ja"); }
+  function byBox(a, b) { if ((a.box || 0) !== (b.box || 0)) return (a.box || 0) - (b.box || 0); return bySortKey(a, b); }
+  // ① 苦手（毎日維持）：間違えた漢字リストの未定着字＋SRSでテストに間違えた既習字（wrong≥1）
+  var persist = [];
+  var list = (data.kanjiList && data.kanjiList[chId]) || [];
+  list.forEach(function (k) { if (k.completed || !isKanjiC(k.kanji) || used[k.kanji]) return; used[k.kanji] = 1; persist.push({ kanji: k.kanji, score: 200 + (k.wrong || 0) * 50 - (k.correctStreak || 0) }); });
+  Object.keys(srs).forEach(function (c) { var st = srs[c]; if (!st || !st.taught || used[c] || !isKanjiC(c)) return; var box = st.box || 0; if (box >= SRS_MASTER_BOX) return; if ((st.wrong || 0) >= 1) { used[c] = 1; persist.push({ kanji: c, score: 100 + (st.wrong || 0) * 50 + (SRS_MASTER_BOX - box) * 3 }); } });
+  persist.sort(function (a, b) { if (b.score !== a.score) return b.score - a.score; return bySortKey(a, b); });
+  // ② 今習っている字（集中）＝中心に毎日出す（定着まで練習）
+  var focus = [];
+  Object.keys(srs).forEach(function (c) { var st = srs[c]; if (!st || !st.taught || used[c] || !isKanjiC(c)) return; var box = st.box || 0; if (box >= SRS_MASTER_BOX) return; if (st.focus) { used[c] = 1; focus.push({ kanji: c, box: box }); } });
+  focus.sort(byBox);
+  // ③ そのほかの既習の復習字＝日替わりで入れ替え（昨日と同じ課題にしない）
+  var review = [];
+  Object.keys(srs).forEach(function (c) { var st = srs[c]; if (!st || !st.taught || used[c] || !isKanjiC(c)) return; var box = st.box || 0; if (box >= SRS_MASTER_BOX) return; used[c] = 1; review.push({ kanji: c, box: box }); });
+  review.sort(byBox);
+  if (review.length > 1) { var off = ((dayIndexOf(date) % review.length) + review.length) % review.length; review = review.slice(off).concat(review.slice(0, off)); }
+  var arr = persist.concat(focus).concat(review).slice(0, n).map(function (x) { return { kanji: x.kanji, score: x.score || 0 }; });
   var known = knownKanjiSet(data, chId, ch);
   arr.forEach(function (it) { var w = pickWordForChar(ch, it.kanji, date, known); it.word = w.word; it.reading = w.reading; it.sentence = w.sentence; });
   return arr;
@@ -857,6 +873,8 @@ function WeekPlanCard(p) {
   const [showDone, setShowDone] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addWbId, setAddWbId] = useState("");
+  const [addWbUnit, setAddWbUnit] = useState(""); // 2026-09-21 チャレンジで追加する回の指定（""=次の回, 数値=第N回, "test"=テスト）
+  const [addWbMonth, setAddWbMonth] = useState(""); // 2026-09-21 チャレンジの月号指定（空=変更しない）
   const [addLabel, setAddLabel] = useState("");
   const [addMin, setAddMin] = useState("");
   const [addFreePages, setAddFreePages] = useState(""); // 2026-08-22 自由入力タスクのページ欄
@@ -1048,8 +1066,19 @@ function WeekPlanCard(p) {
       var wb = wbs.find(function (w) { return w.id === addWbId; });
       if (!wb) return;
       if (wb.type === "challenge") {
-        if ((wb.doneUnits || 0) < (wb.totalUnits || 0)) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " 第" + nextUnitNum(wb) + "回", subject: wb.subject, action: "unit", wbId: wb.id, unitNo: nextUnitNum(wb), estMin: estMin, day: addDayIdx };
-        else if (wb.hasTest && !wb.testDone) t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
+        // 2026-09-21 月号の指定があれば issueMonth を更新
+        var _wbReal = d.workbooks && d.workbooks[ch.id] && d.workbooks[ch.id].find(function (w) { return w.id === wb.id; });
+        var _mSel = parseInt(addWbMonth, 10);
+        if (_wbReal && _mSel >= 1 && _mSel <= 12) { _wbReal.issueMonth = _mSel; wb.issueMonth = _mSel; }
+        // 2026-09-21 追加する回：指定があればそれ、無ければ次の回を自動判定
+        var _unitsLeft = (wb.doneUnits || 0) < (wb.totalUnits || 0);
+        var _testLeft = wb.hasTest && !wb.testDone;
+        var _pick = (addWbUnit == null) ? "" : String(addWbUnit);
+        var _pickNum = parseInt(_pick, 10);
+        var _mode = _pick === "test" ? "test" : (_pickNum >= 1 ? "unit" : (_unitsLeft ? "unit" : (_testLeft ? "test" : "")));
+        var _cu = _mode === "unit" ? (_pickNum >= 1 ? _pickNum : (nextUnitNum(wb) || ((wb.doneUnits || 0) + 1))) : 0;
+        if (_mode === "unit") t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " 第" + _cu + "回", subject: wb.subject, action: "unit", wbId: wb.id, unitNo: _cu, estMin: estMin, day: addDayIdx };
+        else if (_mode === "test") t = { id: ch.id + "_wa" + Date.now(), label: wb.name + " " + chalTag(wb) + " テスト", subject: wb.subject, action: "test", wbId: wb.id, estMin: estMin, day: addDayIdx };
         else return;
       } else {
         var _eff = effDoneForAdd(wb, "this", addDayIdx);
@@ -1063,7 +1092,7 @@ function WeekPlanCard(p) {
     d.weekPlan[ch.id].tasks.push(t);
     if (t.wbId && _isPageAction(t.action)) reseqPages(d, t.wbId, "this");
     save(d);
-    setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin(""); setAddFreePages("");
+    setAddOpen(false); setAddWbId(""); setAddWbUnit(""); setAddWbMonth(""); setAddLabel(""); setAddMin(""); setAddFreePages("");
   };
   // まちがえた漢字の練習を追加：練習タスク（週プール）＋間違えた漢字リスト＋練習履歴に登録
   var addKanjiPractice = function () {
@@ -1286,6 +1315,28 @@ function WeekPlanCard(p) {
     delete tc["kanji_note"]; delete tc["kanji_note_pt"]; delete tc["kanji_note_ptAmt"];
     save(d);
   };
+  // 2026-09-21 溜まったにがて漢字ノートを「消化せずに消す」（お母さん操作・ポイント無し）
+  var dismissKanjiNote = function (dt) {
+    var target = (typeof dt === "string" && dt) ? dt : TD;
+    var d = clone(data);
+    if (!d.todayChecks) d.todayChecks = {};
+    if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
+    if (!d.todayChecks[ch.id][target]) d.todayChecks[ch.id][target] = {};
+    d.todayChecks[ch.id][target]["kanji_note"] = true;
+    d.todayChecks[ch.id][target]["kanji_note_skipped"] = true;
+    save(d);
+  };
+  var dismissAllMissedNotes = function () {
+    var d = clone(data);
+    if (!d.todayChecks) d.todayChecks = {};
+    if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
+    noteMissed.forEach(function (mn) {
+      if (!d.todayChecks[ch.id][mn.ds]) d.todayChecks[ch.id][mn.ds] = {};
+      d.todayChecks[ch.id][mn.ds]["kanji_note"] = true;
+      d.todayChecks[ch.id][mn.ds]["kanji_note_skipped"] = true;
+    });
+    save(d);
+  };
   var noteLinesForDate = function (ds) {
     var cu = _noteCustAll && _noteCustAll[ds];
     var lst = (cu && cu.length) ? cu : kanjiWeakList(data, ch.id, ds, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay);
@@ -1455,6 +1506,11 @@ function WeekPlanCard(p) {
                 <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through", opacity: .6 }}><Kid t={"にがて漢字ノート"} ch={ch} data={data} on={!isP} /></div>
               </div>
             )}
+            {isP && noteMissed.length >= 2 && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                <button onClick={dismissAllMissedNotes} style={{ ...S.smBtn, background: "#FBE9E7", color: "#D84315", fontSize: 11 }} title="溜まったやり残しをまとめて消す（消化せず）">🗑 やり残し{noteMissed.length}日ぶんを全部消す</button>
+              </div>
+            )}
             {noteMissed.map(function (mn) {
               return (
                 <div key={mn.ds} style={{ background: "#FFF3E0", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6, border: "1px dashed #FFB74D" }}>
@@ -1475,6 +1531,7 @@ function WeekPlanCard(p) {
                     })}
                   </div>
                   <button onClick={function () { finishKanjiNote(mn.ds); }} style={{ ...S.subBtn, background: "#FB8C00", marginTop: 10 }}><Kid t={"✍️ この日のぶん、書けた！"} ch={ch} data={data} on={!isP} /></button>
+                  {isP && <button onClick={function () { dismissKanjiNote(mn.ds); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#999", fontSize: 11, marginTop: 6 }} title="この日のぶんを消化せずに消す">🗑 この日を消す</button>}
                 </div>
               );
             })}
@@ -1628,7 +1685,35 @@ function WeekPlanCard(p) {
                     <button onClick={function () { setAddWbId(wbs.length > 0 ? wbs[0].id : ""); }} style={{ ...S.smBtn, background: addWbId ? ch.color : "#f0f0f0", color: addWbId ? "#fff" : "#666", flex: 1 }}>問題集から</button>
                   </div>
                   {addWbId ? (
-                    <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 6 }}>{wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}</option>; })}</select>
+                    <div>
+                      <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); setAddWbUnit(""); setAddWbMonth(""); }} style={{ ...S.input, marginBottom: 6 }}>{wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}</option>; })}</select>
+                      {(function () {
+                        var selWb = wbs.find(function (w) { return w.id === addWbId; });
+                        if (!selWb || selWb.type !== "challenge") return null;
+                        var _tot = selWb.totalUnits || 0;
+                        var _dn = chalDoneNums(selWb);
+                        var _unitsLeft = (selWb.doneUnits || 0) < _tot;
+                        var _testLeft = selWb.hasTest && !selWb.testDone;
+                        var _defNext = _unitsLeft ? String(nextUnitNum(selWb) || ((selWb.doneUnits || 0) + 1)) : (_testLeft ? "test" : "");
+                        var _selVal = addWbUnit !== "" ? addWbUnit : _defNext;
+                        var _mVal = addWbMonth !== "" ? addWbMonth : String(chalMonth(selWb));
+                        var _opts = [];
+                        for (var _u = 1; _u <= _tot; _u++) { var _done = _dn.indexOf(_u) >= 0; _opts.push(<option key={"u" + _u} value={String(_u)}>{"第" + _u + "回" + (_done ? "（やった）" : "")}</option>); }
+                        if (selWb.hasTest) _opts.push(<option key="test" value="test">{"テスト" + (selWb.testDone ? "（やった）" : "")}</option>);
+                        if (_tot === 0 && !selWb.hasTest) return null;
+                        return (
+                          <div style={{ marginBottom: 6, padding: "6px 8px", background: "#FFFDE7", borderRadius: 8 }}>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>📕 どれを</span>
+                              <select value={_selVal} onChange={function (e) { setAddWbUnit(e.target.value); }} style={{ ...S.input, flex: 1, minWidth: 100 }}>{_opts}</select>
+                              <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>
+                              <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                            </div>
+                            <div style={{ fontSize: 10, color: "#B08900", marginTop: 4 }}>※古い回は自動で選ばれません。やりたい回・月号を選べます。</div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   ) : (
                     <div>
                       <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 間違いなおし" style={{ ...S.input, marginBottom: 6 }} />
@@ -2246,6 +2331,8 @@ function TodayPlanCard(p) {
   const [addSubj, setAddSubj] = useState(ch.subjects[0] || "");
   const [addWbId, setAddWbId] = useState("");
   const [addWbPages, setAddWbPages] = useState("2");
+  const [addWbUnit, setAddWbUnit] = useState(""); // 2026-09-21 チャレンジで追加する回の指定（""=自動/次の回, 数値=第N回, "test"=テスト）
+  const [addWbMonth, setAddWbMonth] = useState(""); // 2026-09-21 チャレンジの月号指定（空=変更しない）
   const [addFreePages, setAddFreePages] = useState(""); // 2026-08-22 自由入力タスクのページ欄
   const [kanjiInput, setKanjiInput] = useState("");
   const [showKanji, setShowKanji] = useState(false);
@@ -2376,22 +2463,29 @@ function TodayPlanCard(p) {
       var wb = wbs.find(function (w) { return w.id === addWbId; });
       if (!wb) { save(d); setAddLabel(""); setAddWbId(""); return; }
       if (wb.type === "challenge") {
-        // チャレンジ型：次にやるべき課題を判定
+        // 2026-09-21 月号の指定があれば、この問題集の issueMonth を更新（8月号→9月号などの飛ばしに対応）
+        var _wbReal = d.workbooks[ch.id] && d.workbooks[ch.id].find(function (w) { return w.id === wb.id; });
+        var _mSel = parseInt(addWbMonth, 10);
+        if (_wbReal && _mSel >= 1 && _mSel <= 12) { _wbReal.issueMonth = _mSel; wb.issueMonth = _mSel; }
+        // 2026-09-21 追加する回：指定があればそれ（"test"=テスト・数値=第N回）、無ければ次の回を自動判定
         var unitsLeft = (wb.doneUnits || 0) < (wb.totalUnits || 0);
-        var testLeft = !unitsLeft && wb.hasTest && !wb.testDone;
-        if (unitsLeft) {
-          var nextUnit = nextUnitNum(wb) || ((wb.doneUnits || 0) + 1);
+        var testLeft = wb.hasTest && !wb.testDone;
+        var pick = (addWbUnit == null) ? "" : String(addWbUnit);
+        var pickNum = parseInt(pick, 10);
+        var mode = pick === "test" ? "test" : (pickNum >= 1 ? "unit" : (unitsLeft ? "unit" : (testLeft ? "test" : "")));
+        var chosenUnit = mode === "unit" ? (pickNum >= 1 ? pickNum : (nextUnitNum(wb) || ((wb.doneUnits || 0) + 1))) : 0;
+        if (mode === "unit") {
           d.todayOverrides[ch.id][targetTD].added.push({
             id: "cust" + Date.now(),
-            label: wb.name + " " + chalTag(wb) + " 第" + nextUnit + "回",
+            label: wb.name + " " + chalTag(wb) + " 第" + chosenUnit + "回",
             subject: wb.subject,
             time: (wb.minPerUnit || 15) + "分",
             wbId: wb.id,
             wbAction: "unit",
-            unitNo: nextUnit,
+            unitNo: chosenUnit,
             emoji: "📕"
           });
-        } else if (testLeft) {
+        } else if (mode === "test") {
           d.todayOverrides[ch.id][targetTD].added.push({
             id: "cust" + Date.now(),
             label: wb.name + " " + chalTag(wb) + " テスト",
@@ -2403,7 +2497,7 @@ function TodayPlanCard(p) {
           });
         } else {
           // すべて完了済み → 何もしない
-          save(d); setAddLabel(""); setAddWbId(""); return;
+          save(d); setAddLabel(""); setAddWbId(""); setAddWbUnit(""); setAddWbMonth(""); return;
         }
       } else {
         // ページ型（既存挙動）
@@ -2427,6 +2521,8 @@ function TodayPlanCard(p) {
     setAddLabel("");
     setAddFreePages("");
     setAddWbId("");
+    setAddWbUnit("");
+    setAddWbMonth("");
   };
   // 漢字練習を1つのタスクとして追加（2026-05-16 修正：以前は1文字ずつ別タスクに分解されていた）
   // 2026-05-24: kanjiList（間違えた漢字リスト）とkanjiHistory（練習履歴）にも自動登録
@@ -2685,20 +2781,30 @@ function TodayPlanCard(p) {
                 var selWb = wbs.find(function (w) { return w.id === addWbId; });
                 if (!selWb) return null;
                 if (selWb.type === "challenge") {
-                  var unitsLeft = (selWb.doneUnits || 0) < (selWb.totalUnits || 0);
-                  var testLeft = !unitsLeft && selWb.hasTest && !selWb.testDone;
-                  var nextMsg, isDone = false;
-                  if (unitsLeft) {
-                    nextMsg = "📕 次に追加されるのは「第" + nextUnitNum(selWb) + "回」（" + (selWb.minPerUnit || 15) + "分）です";
-                  } else if (testLeft) {
-                    nextMsg = "📝 次に追加されるのは「テスト」（" + (selWb.minPerUnit || 15) + "分）です";
-                  } else {
-                    nextMsg = "✅ この問題集はすべて完了しています";
-                    isDone = true;
-                  }
+                  // 2026-09-21 回・月号を選べるように（自動で一番古い回に決めない）
+                  var _tot = selWb.totalUnits || 0;
+                  var _dn = chalDoneNums(selWb);
+                  var _unitsLeft = (selWb.doneUnits || 0) < _tot;
+                  var _testLeft = selWb.hasTest && !selWb.testDone;
+                  var _defNext = _unitsLeft ? String(nextUnitNum(selWb) || ((selWb.doneUnits || 0) + 1)) : (_testLeft ? "test" : "");
+                  var _selVal = addWbUnit !== "" ? addWbUnit : _defNext;
+                  var _mVal = addWbMonth !== "" ? addWbMonth : String(chalMonth(selWb));
+                  var _opts = [];
+                  for (var _u = 1; _u <= _tot; _u++) { var _done = _dn.indexOf(_u) >= 0; _opts.push(<option key={"u" + _u} value={String(_u)}>{"第" + _u + "回" + (_done ? "（やった）" : "")}</option>); }
+                  if (selWb.hasTest) _opts.push(<option key="test" value="test">{"テスト" + (selWb.testDone ? "（やった）" : "")}</option>);
+                  if (_tot === 0 && !selWb.hasTest) { return (<div style={{ fontSize: 11, color: "#aaa", marginBottom: 6, padding: "8px 10px", background: "#f5f5f5", borderRadius: 8 }}>この問題集には回がありません</div>); }
                   return (
-                    <div style={{ fontSize: 11, color: isDone ? "#aaa" : "#555", marginBottom: 6, padding: "8px 10px", background: isDone ? "#f5f5f5" : "#FFFDE7", borderRadius: 8, lineHeight: 1.5 }}>
-                      {nextMsg}
+                    <div style={{ marginBottom: 6, padding: "8px 10px", background: "#FFFDE7", borderRadius: 8 }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>📕 どれを追加？</span>
+                        <select value={_selVal} onChange={function (e) { setAddWbUnit(e.target.value); }} style={{ ...S.input, flex: 1, minWidth: 110 }}>{_opts}</select>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                        <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>
+                        <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 54, textAlign: "center" }} />
+                        <span style={{ fontSize: 11, color: "#999" }}>月号（8月号を飛ばして9月号なども指定できます）</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: "#B08900", marginTop: 5, lineHeight: 1.5 }}>※古い回は自動で選ばれません。やりたい回・月号を選んでください。</div>
                     </div>
                   );
                 }
@@ -3625,6 +3731,8 @@ function ReviewTab(p) {
   const [addLabel, setAddLabel] = useState("");
   const [addSubj, setAddSubj] = useState(ch.subjects[0] || "");
   const [addWbPages, setAddWbPages] = useState("2");
+  const [addWbUnit, setAddWbUnit] = useState(""); // 2026-09-21 記録するチャレンジ回の指定（""=次の回, 数値=第N回, "test"=テスト）
+  const [addWbMonth, setAddWbMonth] = useState(""); // 2026-09-21 チャレンジ月号指定
   const [addMin, setAddMin] = useState("");
   const [addSec, setAddSec] = useState("");
   var viewDate = new Date(NOW.getFullYear(), NOW.getMonth() + monthOffset, 1);
@@ -3810,10 +3918,16 @@ function ReviewTab(p) {
       if (!wb) return;
       wbId = wb.id; subject = wb.subject;
       if (wb.type === "challenge") {
+        var _mSel = parseInt(addWbMonth, 10);
+        if (_mSel >= 1 && _mSel <= 12) { wb.issueMonth = _mSel; }
         var unitsLeft = (wb.doneUnits || 0) < (wb.totalUnits || 0);
-        var testLeft = !unitsLeft && wb.hasTest && !wb.testDone;
-        if (unitsLeft) { wbAction = "unit"; var _chalNo = nextUnitNum(wb) || ((wb.doneUnits || 0) + 1); label = wb.name + " " + chalTag(wb) + " 第" + _chalNo + "回"; ptAmt = _pc.chalUnit || 1; }
-        else if (testLeft) { wbAction = "test"; label = wb.name + " " + chalTag(wb) + " テスト"; ptAmt = _pc.chalTest || 2; }
+        var testLeft = wb.hasTest && !wb.testDone;
+        var _pick = (addWbUnit == null) ? "" : String(addWbUnit);
+        var _pickNum = parseInt(_pick, 10);
+        var _mode = _pick === "test" ? "test" : (_pickNum >= 1 ? "unit" : (unitsLeft ? "unit" : (testLeft ? "test" : "")));
+        var _chalNo = _mode === "unit" ? (_pickNum >= 1 ? _pickNum : (nextUnitNum(wb) || ((wb.doneUnits || 0) + 1))) : 0;
+        if (_mode === "unit") { wbAction = "unit"; label = wb.name + " " + chalTag(wb) + " 第" + _chalNo + "回"; ptAmt = _pc.chalUnit || 1; }
+        else if (_mode === "test") { wbAction = "test"; label = wb.name + " " + chalTag(wb) + " テスト"; ptAmt = _pc.chalTest || 2; }
         else { return; }
       } else {
         wbAction = "pages"; pages = parseInt(addWbPages) || 2; label = wb.name + " " + pageLabel(wb, pages); ptAmt = _pc.pageDone || 1;
@@ -3843,7 +3957,7 @@ function ReviewTab(p) {
       meta: { checkKey: checkKey, checkDate: date, ptAwarded: ptAmt, ptHistoryId: ptHistoryId, wbAdvance: wbAdvance, wbChallengeUndo: wbChallengeUndo, isPartial: false }
     });
     save(d);
-    setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin(""); setAddSec(""); setAddWbPages("2");
+    setAddOpen(false); setAddWbId(""); setAddLabel(""); setAddMin(""); setAddSec(""); setAddWbPages("2"); setAddWbUnit(""); setAddWbMonth("");
   };
   var addManualLog = function () {
     var dd = clone(data);
@@ -4057,20 +4171,35 @@ function ReviewTab(p) {
               </div>
               {addWbId ? (
                 <div>
-                  <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 6 }}>
+                  <select value={addWbId} onChange={function (e) { setAddWbId(e.target.value); setAddWbUnit(""); setAddWbMonth(""); }} style={{ ...S.input, marginBottom: 6 }}>
                     {wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}（{wb.subject}）</option>; })}
                   </select>
                   {(function () {
                     var selWb = wbs.find(function (w) { return w.id === addWbId; });
                     if (!selWb) return null;
                     if (selWb.type === "challenge") {
-                      var unitsLeft = (selWb.doneUnits || 0) < (selWb.totalUnits || 0);
-                      var testLeft = !unitsLeft && selWb.hasTest && !selWb.testDone;
-                      var msg, isDone = false;
-                      if (unitsLeft) msg = "📕 「第" + nextUnitNum(selWb) + "回」を記録します";
-                      else if (testLeft) msg = "📝 「テスト」を記録します";
-                      else { msg = "✅ この問題集はすべて完了しています"; isDone = true; }
-                      return <div style={{ fontSize: 11, color: isDone ? "#aaa" : "#555", marginBottom: 6, padding: "8px 10px", background: isDone ? "#f5f5f5" : "#FFFDE7", borderRadius: 8, lineHeight: 1.5 }}>{msg}</div>;
+                      var _tot = selWb.totalUnits || 0;
+                      var _dn = chalDoneNums(selWb);
+                      var _unitsLeft = (selWb.doneUnits || 0) < _tot;
+                      var _testLeft = selWb.hasTest && !selWb.testDone;
+                      var _defNext = _unitsLeft ? String(nextUnitNum(selWb) || ((selWb.doneUnits || 0) + 1)) : (_testLeft ? "test" : "");
+                      var _selVal = addWbUnit !== "" ? addWbUnit : _defNext;
+                      var _mVal = addWbMonth !== "" ? addWbMonth : String(chalMonth(selWb));
+                      var _opts = [];
+                      for (var _u = 1; _u <= _tot; _u++) { var _done = _dn.indexOf(_u) >= 0; _opts.push(<option key={"u" + _u} value={String(_u)}>{"第" + _u + "回" + (_done ? "（やった）" : "")}</option>); }
+                      if (selWb.hasTest) _opts.push(<option key="test" value="test">{"テスト" + (selWb.testDone ? "（やった）" : "")}</option>);
+                      if (_tot === 0 && !selWb.hasTest) return <div style={{ fontSize: 11, color: "#aaa", marginBottom: 6, padding: "8px 10px", background: "#f5f5f5", borderRadius: 8 }}>この問題集には回がありません</div>;
+                      return (
+                        <div style={{ marginBottom: 6, padding: "8px 10px", background: "#FFFDE7", borderRadius: 8 }}>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>📕 どれを記録？</span>
+                            <select value={_selVal} onChange={function (e) { setAddWbUnit(e.target.value); }} style={{ ...S.input, flex: 1, minWidth: 100 }}>{_opts}</select>
+                            <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>
+                            <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                          </div>
+                          <div style={{ fontSize: 10, color: "#B08900", marginTop: 4 }}>※古い回は自動で選ばれません。やった回・月号を選べます。</div>
+                        </div>
+                      );
                     }
                     return (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
