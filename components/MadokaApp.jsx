@@ -470,9 +470,19 @@ var KANJI_CORPUS = {}; // {grade:{char:[{word,reading,type}]}} Supabaseのkanji_
 var SRS_INTERVALS = [0, 1, 3, 7, 14, 30]; var SRS_MASTER_BOX = 5;
 async function loadKanjiCorpus() {
   try {
-    var r = await supabase.from("kanji_words").select("grade,kanji,word,reading,reading_type,example,sort").order("grade").order("sort");
-    var rows = r.data || []; var c = {};
-    rows.forEach(function (x) { if (!c[x.grade]) c[x.grade] = {}; if (!c[x.grade][x.kanji]) c[x.grade][x.kanji] = []; c[x.grade][x.kanji].push({ word: x.word, reading: x.reading, type: x.reading_type, example: x.example }); });
+    // 2026-09-22 修正：PostgREST既定の1000行上限だと高学年（4・5年）のコーパスが読み込まれず、
+    //   叡志(5年)の漢字が熟語にならず一文字になっていた（コーパス全2331語・grade2までで911語）。
+    //   1000件ずつページングして全件読み込む（将来コーパスが増えても安全）。
+    var c = {}; var page = 1000; var from = 0; var got = 0;
+    while (true) {
+      var r = await supabase.from("kanji_words").select("grade,kanji,word,reading,reading_type,example,sort").order("grade").order("sort").range(from, from + page - 1);
+      var rows = (r && r.data) || [];
+      rows.forEach(function (x) { if (!c[x.grade]) c[x.grade] = {}; if (!c[x.grade][x.kanji]) c[x.grade][x.kanji] = []; c[x.grade][x.kanji].push({ word: x.word, reading: x.reading, type: x.reading_type, example: x.example }); });
+      got += rows.length;
+      if (rows.length < page) break;   // 最終ページ
+      from += page;
+      if (from > 100000) break;        // 安全弁（無限ループ防止）
+    }
     KANJI_CORPUS = c; buildKanjiReadIndex();
   } catch (e) { /* ignore */ }
 }
@@ -3261,6 +3271,8 @@ function WorkbooksTab(p) {
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   const [showAddChal, setShowAddChal] = useState(false);
   const [showAddPage, setShowAddPage] = useState(false);
+  const [showDoneChal, setShowDoneChal] = useState(false); // 2026-09-22 完了したチャレンジの開閉
+  const [showDonePage, setShowDonePage] = useState(false); // 2026-09-22 完了した問題集の開閉
   const [chalName, setChalName] = useState("");
   const [chalSubj, setChalSubj] = useState(ch.subjects[0]);
   const [chalUnits, setChalUnits] = useState("5");
@@ -3439,7 +3451,9 @@ function WorkbooksTab(p) {
             <button onClick={addChallenge} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%", marginTop: 6, padding: 8 }}>追加</button>
           </div>
         )}
-        {challenges.length > 0 ? challenges.map(function (wb) {
+        {(function () {
+          var chalAllDone = function (w) { return (w.doneUnits || 0) >= (w.totalUnits || 0) && (!w.hasTest || w.testDone); };
+          var chalItem = function (wb) {
           var total = wb.totalUnits || 0;
           var done = wb.doneUnits || 0;
           var allDone = done >= total && (!wb.hasTest || wb.testDone);
@@ -3489,7 +3503,22 @@ function WorkbooksTab(p) {
               )}
             </div>
           );
-        }) : <div style={{ fontSize: 12, color: "#ccc" }}>チャレンジはまだ登録されていません</div>}
+          };
+          if (!challenges.length) return <div style={{ fontSize: 12, color: "#ccc" }}>チャレンジはまだ登録されていません</div>;
+          var chalActive = challenges.filter(function (w) { return !chalAllDone(w); });
+          var chalDone = challenges.filter(chalAllDone);
+          return (
+            <div>
+              {chalActive.length > 0 ? chalActive.map(chalItem) : <div style={{ fontSize: 11, color: "#ccc", padding: "4px 0" }}>とりくみ中のチャレンジはありません</div>}
+              {chalDone.length > 0 && (
+                <div style={{ marginTop: 10, borderTop: "1px dashed #e0e0e0", paddingTop: 8 }}>
+                  <button onClick={function () { setShowDoneChal(!showDoneChal); }} style={{ ...S.smBtn, background: "#F1F8E9", color: "#558B2F", width: "100%", fontSize: 11 }}>{showDoneChal ? "▲ 完了ずみをとじる" : "✅ 完了ずみ（" + chalDone.length + "）を見る"}</button>
+                  {showDoneChal && <div style={{ marginTop: 4, opacity: .7 }}>{chalDone.map(chalItem)}</div>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
       {/* Page-based workbooks */}
       <div style={S.card}>
@@ -3512,7 +3541,9 @@ function WorkbooksTab(p) {
             <button onClick={addPageBook} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%", marginTop: 6, padding: 8 }}>追加</button>
           </div>
         )}
-        {pageBooks.length > 0 ? pageBooks.map(function (wb) {
+        {(function () {
+          var pageAllDone = function (w) { var t = w.totalPages || 0; var d = (w.donePages || 0) - deferCount(w); return t > 0 && d >= t; };
+          var pageItem = function (wb) {
           var total = wb.totalPages || 0;
           var done = wb.donePages || 0;
           var dc = deferCount(wb);
@@ -3576,7 +3607,22 @@ function WorkbooksTab(p) {
               </div>
             </div>
           );
-        }) : <div style={{ fontSize: 12, color: "#ccc" }}>問題集はまだ登録されていません</div>}
+          };
+          if (!pageBooks.length) return <div style={{ fontSize: 12, color: "#ccc" }}>問題集はまだ登録されていません</div>;
+          var pageActive = pageBooks.filter(function (w) { return !pageAllDone(w); });
+          var pageDone = pageBooks.filter(pageAllDone);
+          return (
+            <div>
+              {pageActive.length > 0 ? pageActive.map(pageItem) : <div style={{ fontSize: 11, color: "#ccc", padding: "4px 0" }}>とりくみ中の問題集はありません</div>}
+              {pageDone.length > 0 && (
+                <div style={{ marginTop: 10, borderTop: "1px dashed #e0e0e0", paddingTop: 8 }}>
+                  <button onClick={function () { setShowDonePage(!showDonePage); }} style={{ ...S.smBtn, background: "#F1F8E9", color: "#558B2F", width: "100%", fontSize: 11 }}>{showDonePage ? "▲ 完了ずみをとじる" : "✅ 完了ずみ（" + pageDone.length + "）を見る"}</button>
+                  {showDonePage && <div style={{ marginTop: 4, opacity: .7 }}>{pageDone.map(pageItem)}</div>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
