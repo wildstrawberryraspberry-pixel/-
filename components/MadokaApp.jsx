@@ -546,18 +546,25 @@ function pickWordForChar(ch, char, seed, known) {
   for (var i = 0; i < grades.length; i++) { var g = grades[i]; var ws = KANJI_CORPUS[g] && KANJI_CORPUS[g][char]; if (ws && ws.length) all = all.concat(ws); }
   if (!all.length) return { word: char, reading: "", sentence: "" };
   function allKnown(w) { return wordKanji(w).every(function (k) { return k === char || (known && known[k]); }); }
-  // ティア: 3=2字ちょうどの熟語(相手も既習) / 2=2字以上の熟語(相手も既習) / 1=それ以外
-  function tier(w) { var kc = wordKanji(w.word).length; if (kc >= 2 && w.word.length === 2 && allKnown(w.word)) return 3; if (kc >= 2 && allKnown(w.word)) return 2; return 1; }
-  var best = 0; all.forEach(function (w) { var t = tier(w); if (t > best) best = t; });
-  if (best <= 1) {
-    // 既習の2字熟語が無い → 一文字（優珠綺の「海」など）。単字の語があれば読みも付ける。
-    var singles = all.filter(function (w) { return w.word === char; });
-    if (singles.length) { var sp = srsPick(singles, seed + ":" + char) || singles[0]; return { word: char, reading: sp.reading || "", sentence: sp.example || "" }; }
-    return { word: char, reading: "", sentence: "" };
+  // 2026-09-22 改修：なるべく熟語で出す（叡志・優珠綺とも）。一文字は最後の手段。
+  //  優先順位：①相手も既習の2字熟語 → ②相手も既習の3字以上の熟語 → ③送り仮名つき（喜ぶ・焼ける等・単字＋かな＝必ず読める）
+  //           → ④2字熟語（相手が未習でも）→ ⑤3字以上の熟語（相手が未習でも）→ ⑥単字（コーパスに熟語が無い字だけ）
+  var g_known2 = [], g_knownN = [], g_okuri = [], g_any2 = [], g_anyN = [], g_single = [];
+  all.forEach(function (w) {
+    var kc = wordKanji(w.word).length; var len = (w.word || "").length;
+    if (kc >= 2 && len === 2 && allKnown(w.word)) g_known2.push(w);
+    else if (kc >= 2 && allKnown(w.word)) g_knownN.push(w);
+    else if (kc === 1 && len > 1) g_okuri.push(w);          // 送り仮名つき（単字＋かな）
+    else if (kc >= 2 && len === 2) g_any2.push(w);           // 相手未習でも2字熟語
+    else if (kc >= 2) g_anyN.push(w);                        // 相手未習でも3字以上
+    else g_single.push(w);                                   // 単字（word===char 等）
+  });
+  var order = [g_known2, g_knownN, g_okuri, g_any2, g_anyN, g_single];
+  for (var oi = 0; oi < order.length; oi++) {
+    var pool = order[oi];
+    if (pool.length) { var wpk = srsPick(pool, seed + ":" + char) || pool[0]; return { word: wpk.word, reading: wpk.reading || "", sentence: wpk.example || "" }; }
   }
-  var pool = all.filter(function (w) { return tier(w) === best; });
-  var wpk = srsPick(pool, seed + ":" + char) || pool[0];
-  return { word: wpk.word, reading: wpk.reading || "", sentence: wpk.example || "" };
+  return { word: char, reading: "", sentence: "" };
 }
 // 2026-09-21 日付→通し日数（決定的・端末非依存）。にがて漢字ノートの日替わりローテーションに使う。
 function dayIndexOf(ds) { var p = String(ds || "").split("-"); if (p.length < 3) return 0; var y = parseInt(p[0], 10), m = parseInt(p[1], 10), dd = parseInt(p[2], 10); if (!(y && m && dd)) return 0; return Math.floor(Date.UTC(y, m - 1, dd) / 86400000); }
