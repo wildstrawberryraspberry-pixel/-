@@ -4648,6 +4648,42 @@ function TestsTab(p) {
   // Group by type for chart
   var byType = {};
   testTypes.forEach(function (t) { byType[t] = sorted.filter(function (r) { return r.type === t; }).reverse(); });
+  // 2026-09-22 テスト成果の「達成感」＋「勉強時間との関係」表示用の計算
+  var logsAll = (data.studyLogs && data.studyLogs[ch.id]) || [];
+  var daysBeforeDs = function (ds, n) { var pp = String(ds).split("-"); var dt = new Date(+pp[0], +pp[1] - 1, +pp[2]); dt.setDate(dt.getDate() - n); return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"); };
+  // 1件あたり最大2時間で頭打ち（タイマー消し忘れ等の異常値がグラフを壊さないように）
+  var STUDY_CAP = 7200;
+  var studyBetween = function (fromEx, toIn) { var s = 0; logsAll.forEach(function (l) { if (l && l.date > fromEx && l.date <= toIn) s += Math.min(l.seconds || 0, STUDY_CAP); }); return s; };
+  var fmtDur = function (sec) { var m = Math.round((sec || 0) / 60); if (m < 60) return m + "分"; var h = Math.floor(m / 60); var mm = m % 60; return h + "時間" + (mm ? mm + "分" : ""); };
+  var fmtDurShort = function (sec) { var m = Math.round((sec || 0) / 60); if (m < 60) return m + "分"; var h = Math.round(m / 6) / 10; return h + "h"; };
+  // 各テストの前回比・自己ベスト・直前までの勉強時間（種類ごとに時系列で算出）
+  var recMeta = {};
+  testTypes.forEach(function (type) {
+    var trs = byType[type] || [];
+    var best = trs.length ? Math.max.apply(null, trs.map(function (r) { return r.total; })) : 0;
+    trs.forEach(function (rec, i) {
+      var prev = i > 0 ? trs[i - 1] : null;
+      var fromEx = prev ? prev.date : daysBeforeDs(rec.date, 30);
+      recMeta[rec.id] = { delta: prev ? (rec.total - prev.total) : null, prevTotal: prev ? prev.total : null, studySec: studyBetween(fromEx, rec.date), isBest: trs.length > 0 && rec.total === best, sinceLabel: prev ? "前回から" : "この30日" };
+    });
+  });
+  var maxScorePoss = (testSubjects.length || 0) * 100;
+  // 各記録の満点（実際に点数が入っている教科数×100）。1教科だけのテストでも正しい割合・棒の高さになる。
+  var recMaxOf = function (rec) { var c = 0; if (rec && rec.scores) Object.keys(rec.scores).forEach(function (k) { var v = rec.scores[k]; if (v != null && !isNaN(v)) c++; }); return Math.max(100, (c || 1) * 100); };
+  var deltaChip = function (d) {
+    if (d == null) return <span style={{ fontSize: 10, color: "#aaa", fontWeight: 700 }}>はじめて</span>;
+    if (d > 0) return <span style={{ fontSize: 11, color: "#2E7D32", background: "#E8F5E9", borderRadius: 8, padding: "1px 7px", fontWeight: 800 }}>↑+{d}</span>;
+    if (d < 0) return <span style={{ fontSize: 11, color: "#C62828", background: "#FFEBEE", borderRadius: 8, padding: "1px 7px", fontWeight: 800 }}>↓{d}</span>;
+    return <span style={{ fontSize: 11, color: "#888", background: "#f0f0f0", borderRadius: 8, padding: "1px 7px", fontWeight: 800 }}>±0</span>;
+  };
+  // 2026-09-22 教科別・総合の学習時間
+  var studyBetweenSubj = function (subj, fromEx, toIn) { var s = 0; logsAll.forEach(function (l) { if (l && l.subject === subj && l.date > fromEx && l.date <= toIn) s += Math.min(l.seconds || 0, STUDY_CAP); }); return s; };
+  var totalStudyAll = 0; logsAll.forEach(function (l) { totalStudyAll += Math.min((l && l.seconds) || 0, STUDY_CAP); });
+  var subjStudyTotal = {}; logsAll.forEach(function (l) { if (l && l.subject) { subjStudyTotal[l.subject] = (subjStudyTotal[l.subject] || 0) + Math.min(l.seconds || 0, STUDY_CAP); } });
+  var allSubjects = testSubjects.slice(); records.forEach(function (r) { if (r.scores) Object.keys(r.scores).forEach(function (k) { if (allSubjects.indexOf(k) < 0) allSubjects.push(k); }); });
+  var SUBJ_META = { "国語": { c: "#E5566B", e: "📕" }, "算数": { c: "#4C8DF6", e: "🔢" }, "数学": { c: "#4C8DF6", e: "🔢" }, "理科": { c: "#3DBE8B", e: "🔬" }, "社会": { c: "#F0993E", e: "🌏" }, "英語": { c: "#9B7BE0", e: "🔤" }, "漢字": { c: "#E5566B", e: "✏️" }, "生活": { c: "#3DBE8B", e: "🌱" }, "音楽": { c: "#9B7BE0", e: "🎵" }, "図工": { c: "#F0993E", e: "🎨" }, "体育": { c: "#4C8DF6", e: "⚽" } };
+  var SUBJ_COLOR = function (s) { return (SUBJ_META[s] && SUBJ_META[s].c) || ch.color; };
+  var SUBJ_EMOJI = function (s) { return (SUBJ_META[s] && SUBJ_META[s].e) || "📗"; };
   return (
     <div style={{ animation: "fadeIn .3s ease" }}>
       {/* Header */}
@@ -4762,31 +4798,79 @@ function TestsTab(p) {
           </div>
         </div>
       )}
-      {/* Score trend per type */}
-      {testTypes.map(function (type) {
-        var typeRecs = byType[type] || [];
-        if (typeRecs.length === 0) return null;
+      {/* 総まとめ：総勉強時間の累計＋教科別の勉強時間 */}
+      <div style={S.card}>
+        <div style={S.cardTitle}>⏱️ これまでの勉強時間</div>
+        <div style={{ textAlign: "center", padding: "2px 0 10px" }}>
+          <div style={{ fontSize: 30, fontWeight: 900, color: ch.color, lineHeight: 1 }}>{fmtDur(totalStudyAll)}</div>
+          <div style={{ fontSize: 10, color: "#aaa", marginTop: 3 }}>累計（記録した学習の合計）</div>
+        </div>
+        {(function () {
+          var subs = allSubjects.filter(function (s) { return (subjStudyTotal[s] || 0) > 0; });
+          if (!subs.length) return <div style={{ fontSize: 11, color: "#ccc" }}>教科別の勉強時間はまだありません</div>;
+          subs = subs.slice().sort(function (a, b) { return (subjStudyTotal[b] || 0) - (subjStudyTotal[a] || 0); });
+          var mx = Math.max.apply(null, subs.map(function (s) { return subjStudyTotal[s]; }).concat([1]));
+          return (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 6 }}>教科べつの勉強時間</div>
+              {subs.map(function (s) {
+                var v = subjStudyTotal[s]; var w = Math.round(v / mx * 100);
+                return (
+                  <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                    <span style={{ fontSize: 11, width: 40, color: "#555", fontWeight: 700 }}>{SUBJ_EMOJI(s)}{s}</span>
+                    <div style={{ flex: 1, background: "#f0f0f0", borderRadius: 6, height: 14, overflow: "hidden" }}><div style={{ height: "100%", width: Math.max(3, w) + "%", background: SUBJ_COLOR(s), borderRadius: 6 }} /></div>
+                    <span style={{ fontSize: 10, color: "#888", width: 68, textAlign: "right" }}>{fmtDur(v)}</span>
+                  </div>
+                );
+              })}
+              <div style={{ fontSize: 9, color: "#bbb", marginTop: 2 }}>※教科をえらんで学習した記録のぶんです（教科なしの時間は上の累計に含みます）。</div>
+            </div>
+          );
+        })()}
+      </div>
+      {/* 教科別の成績（点数の推移＋その教科の勉強時間との対応） */}
+      {allSubjects.map(function (subj) {
+        var subjRecs = records.filter(function (r) { return r.scores && r.scores[subj] != null && !isNaN(r.scores[subj]); }).slice().sort(function (a, b) { return a.date > b.date ? 1 : a.date < b.date ? -1 : 0; });
+        if (!subjRecs.length) return null;
+        var sc0 = subjRecs.map(function (r) { return r.scores[subj]; });
+        var best = Math.max.apply(null, sc0);
+        var avg = Math.round(sc0.reduce(function (s, x) { return s + x; }, 0) / sc0.length);
+        var enriched = subjRecs.map(function (r, i) { var prev = i > 0 ? subjRecs[i - 1] : null; var fromEx = prev ? prev.date : daysBeforeDs(r.date, 30); return { r: r, sc: r.scores[subj], delta: prev ? (r.scores[subj] - prev.scores[subj]) : null, studySec: studyBetweenSubj(subj, fromEx, r.date) }; });
+        var maxStudyS = Math.max.apply(null, enriched.map(function (e) { return e.studySec; }).concat([1]));
+        var le = enriched[enriched.length - 1];
+        var cheer = (le.sc === best && subjRecs.length > 1) ? "🏆 自己ベスト！" : (le.delta > 0 ? "🎉 前回より+" + le.delta + "点！" : (le.delta < 0 ? "つぎがんばろう💪" : "その調子✏️"));
+        var scol = SUBJ_COLOR(subj);
         return (
-          <div key={type} style={S.card}>
-            <div style={S.cardTitle}>📈 {type}の推移</div>
+          <div key={"subj_" + subj} style={S.card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
+              <div style={S.cardTitle}>{SUBJ_EMOJI(subj)} {subj}</div>
+              <div style={{ fontSize: 10, color: "#888" }}>🏆<b style={{ color: scol, fontSize: 14 }}>{best}</b>・平均{avg}・勉強{fmtDurShort(subjStudyTotal[subj] || 0)}</div>
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: scol, marginBottom: 4 }}>{cheer}</div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 10, color: "#888", marginBottom: 4 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: scol, display: "inline-block" }} />点数</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: "#FFB74D", display: "inline-block" }} />{subj}の勉強時間</span>
+            </div>
             <div style={{ overflowX: "auto" }}>
-              <div style={{ display: "flex", gap: 0, minWidth: typeRecs.length * 70 }}>
-                {typeRecs.map(function (rec) {
-                  var maxScore = testSubjects.length * 100;
-                  var barH = maxScore > 0 ? Math.round((rec.total / maxScore) * 100) : 0;
+              <div style={{ display: "flex", minWidth: enriched.length * 64 }}>
+                {enriched.map(function (e) {
+                  var scoreH = Math.max(4, Math.round(e.sc / 100 * 66));
+                  var studyH = Math.max(3, Math.round(e.studySec / maxStudyS * 40));
+                  var isBest = e.sc === best;
                   return (
-                    <div key={rec.id} onClick={function () { setDetail(detail === rec.id ? null : rec.id); }} style={{ flex: 1, minWidth: 60, textAlign: "center", cursor: "pointer", padding: "0 2px" }}>
-                      <div style={{ fontSize: 13, fontWeight: 900, color: ch.color }}>{rec.total}</div>
-                      <div style={{ height: 60, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-                        <div style={{ width: 28, height: Math.max(4, barH * 0.6), background: "linear-gradient(180deg," + ch.color + "," + ch.color + "88)", borderRadius: "4px 4px 0 0" }} />
-                      </div>
-                      <div style={{ fontSize: 8, color: "#999", marginTop: 3 }}>{rec.name}</div>
-                      <div style={{ fontSize: 8, color: "#bbb" }}>{dl(rec.date)}</div>
+                    <div key={e.r.id} onClick={function () { setDetail(detail === e.r.id ? null : e.r.id); }} style={{ flex: 1, minWidth: 58, textAlign: "center", cursor: "pointer", padding: "0 3px" }}>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: scol, lineHeight: 1 }}>{isBest ? "👑" : ""}{e.sc}</div>
+                      <div style={{ marginTop: 1, marginBottom: 2 }}>{deltaChip(e.delta)}</div>
+                      <div style={{ height: 66, display: "flex", alignItems: "flex-end", justifyContent: "center" }}><div style={{ width: 26, height: scoreH, background: "linear-gradient(180deg," + scol + "," + scol + "88)", borderRadius: "5px 5px 0 0" }} /></div>
+                      <div style={{ borderTop: "1px solid #eee", marginTop: 3, paddingTop: 3, height: 40, display: "flex", alignItems: "flex-end", justifyContent: "center" }}><div style={{ width: 20, height: studyH, background: "#FFB74D", borderRadius: "4px 4px 0 0" }} /></div>
+                      <div style={{ fontSize: 9, color: "#E68A00", fontWeight: 700, marginTop: 2 }}>{fmtDurShort(e.studySec)}</div>
+                      <div style={{ fontSize: 8, color: "#bbb", marginTop: 2 }}>{dl(e.r.date)}</div>
                     </div>
                   );
                 })}
               </div>
             </div>
+            <div style={{ fontSize: 10, color: "#aaa", marginTop: 6, lineHeight: 1.5 }}>💡 オレンジ棒は、そのテストの前に「{subj}」を勉強した時間です。</div>
           </div>
         );
       })}
@@ -4800,13 +4884,15 @@ function TestsTab(p) {
               <div key={rec.id} style={{ borderBottom: "1px solid #f5f5f5", padding: "10px 0" }}>
                 <div onClick={function () { setDetail(isOpen ? null : rec.id); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
                   <div>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: "#333" }}>{rec.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: "#333" }}>{(recMeta[rec.id] || {}).isBest ? "👑 " : ""}{rec.name}</span>
                     {testTypes.length > 1 && <span style={{ fontSize: 10, color: "#999", marginLeft: 6 }}>{rec.type}</span>}
-                    <div style={{ fontSize: 10, color: "#bbb" }}>{dl(rec.date)}</div>
+                    {(recMeta[rec.id] || {}).isBest && <span style={{ fontSize: 9, color: "#F9A825", background: "#FFF8E1", borderRadius: 6, padding: "1px 6px", marginLeft: 6, fontWeight: 800 }}>自己ベスト</span>}
+                    <div style={{ fontSize: 10, color: "#bbb" }}>{dl(rec.date)}・勉強 {fmtDur((recMeta[rec.id] || {}).studySec || 0)}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 18, fontWeight: 900, color: ch.color }}>{rec.total}<span style={{ fontSize: 10, color: "#999" }}>点</span></div>
-                    {rec.rank && <div style={{ fontSize: 10, color: "#888" }}>{rec.rank}{rec.rankTotal ? "/" + rec.rankTotal : ""}位</div>}
+                    <div style={{ marginTop: 2 }}>{deltaChip((recMeta[rec.id] || {}).delta)}</div>
+                    {rec.rank && <div style={{ fontSize: 10, color: "#888", marginTop: 2 }}>{rec.rank}{rec.rankTotal ? "/" + rec.rankTotal : ""}位</div>}
                   </div>
                 </div>
                 {isOpen && (
