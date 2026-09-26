@@ -43,7 +43,7 @@ var TDI = getToday().tdi;
 // 2026-08-21 チャレンジの「○月号」表示。issueMonth 未設定なら今月を既定にする。
 var CUR_MONTH = parseInt(String(TD).slice(5, 7), 10) || 1;
 function chalMonth(wb) { var m = parseInt(wb && wb.issueMonth, 10); return (m >= 1 && m <= 12) ? m : CUR_MONTH; }
-function chalTag(wb) { return chalMonth(wb) + "月号"; }
+function chalTag(wb) { if (wb && wb.monthly === false) return ""; return chalMonth(wb) + "月号"; }
 // 2026-08-22 チャレンジの「回ごと」完了管理（飛ばし対応）。doneNums=完了した回番号の配列。doneUnits は互換のため件数を同期。
 function chalDoneNums(wb) { if (wb && wb.doneNums && wb.doneNums.length !== undefined) return wb.doneNums; var a = []; var du = (wb && wb.doneUnits) || 0; for (var i = 1; i <= du; i++) a.push(i); return a; }
 // 2026-09-21 前方進行に変更：やった回の最大＋1から次を探す（飛ばした古い回を毎日むし返さない）。
@@ -1747,10 +1747,10 @@ function WeekPlanCard(p) {
                             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                               <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>📕 どれを</span>
                               <select value={_selVal} onChange={function (e) { setAddWbUnit(e.target.value); }} style={{ ...S.input, flex: 1, minWidth: 100 }}>{_opts}</select>
-                              <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>
-                              <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                              {selWb.monthly !== false && <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>}
+                              {selWb.monthly !== false && <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />}
                             </div>
-                            <div style={{ fontSize: 10, color: "#B08900", marginTop: 4 }}>※古い回は自動で選ばれません。やりたい回・月号を選べます。</div>
+                            <div style={{ fontSize: 10, color: "#B08900", marginTop: 4 }}>※古い回は自動で選ばれません。やりたい回{selWb.monthly !== false ? "・月号" : ""}を選べます。</div>
                           </div>
                         );
                       })()}
@@ -2840,11 +2840,13 @@ function TodayPlanCard(p) {
                         <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>📕 どれを追加？</span>
                         <select value={_selVal} onChange={function (e) { setAddWbUnit(e.target.value); }} style={{ ...S.input, flex: 1, minWidth: 110 }}>{_opts}</select>
                       </div>
+                      {selWb.monthly !== false && (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
                         <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>
                         <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 54, textAlign: "center" }} />
                         <span style={{ fontSize: 11, color: "#999" }}>月号（8月号を飛ばして9月号なども指定できます）</span>
                       </div>
+                      )}
                       <div style={{ fontSize: 10, color: "#B08900", marginTop: 5, lineHeight: 1.5 }}>※古い回は自動で選ばれません。やりたい回・月号を選んでください。</div>
                     </div>
                   );
@@ -3278,6 +3280,7 @@ function WorkbooksTab(p) {
   const [chalUnits, setChalUnits] = useState("5");
   const [chalMin, setChalMin] = useState("15");
   const [chalHasTest, setChalHasTest] = useState(true);
+  const [chalMonthly, setChalMonthly] = useState(true); // 2026-09-26 毎月の号（○月号）で管理するか。OFF＝回数だけのプリント型
   const [pageName, setPageName] = useState("");
   const [pageSubj, setPageSubj] = useState(ch.subjects[0]);
   const [pageTotal, setPageTotal] = useState("");
@@ -3410,9 +3413,9 @@ function WorkbooksTab(p) {
     if (!chalName.trim()) return;
     var d = clone(data);
     if (!d.workbooks[ch.id]) d.workbooks[ch.id] = [];
-    d.workbooks[ch.id].push({ id: "wb_c" + Date.now(), name: chalName.trim(), subject: chalSubj, type: "challenge", totalUnits: parseInt(chalUnits) || 5, doneUnits: 0, hasTest: chalHasTest, testDone: false, minPerUnit: parseInt(chalMin) || 15, priority: "high", monthly: true });
+    d.workbooks[ch.id].push({ id: "wb_c" + Date.now(), name: chalName.trim(), subject: chalSubj, type: "challenge", totalUnits: parseInt(chalUnits) || 5, doneUnits: 0, hasTest: chalHasTest, testDone: false, minPerUnit: parseInt(chalMin) || 15, priority: "high", monthly: chalMonthly });
     save(d);
-    setChalName(""); setChalUnits("5"); setChalMin("15"); setChalHasTest(true); setShowAddChal(false);
+    setChalName(""); setChalUnits("5"); setChalMin("15"); setChalHasTest(true); setChalMonthly(true); setShowAddChal(false);
   };
   var addPageBook = function () {
     if (!pageName.trim() || !pageTotal) return;
@@ -3433,16 +3436,22 @@ function WorkbooksTab(p) {
       {/* Challenge section */}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={S.cardTitle}>📕 チャレンジ</div>
+          <div style={S.cardTitle}>📕 チャレンジ・回数プリント</div>
           {isP && <button onClick={function () { setShowAddChal(!showAddChal); }} style={{ ...S.addBtn, background: ch.color }}>{showAddChal ? "✕" : "＋ 追加"}</button>}
         </div>
         {showAddChal && (
           <div style={{ padding: 10, background: "#f9f9f9", borderRadius: 10, marginBottom: 10 }}>
-            <input value={chalName} onChange={function (e) { setChalName(e.target.value); }} placeholder="名前（例：チャレンジ国語）" style={S.input} />
-            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+            {/* 2026-09-26 タイプ切替：毎月の号（チャレンジ）／回数だけ（プリント） */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <button onClick={function () { setChalMonthly(true); }} style={{ ...S.smBtn, flex: 1, background: chalMonthly ? ch.color : "#f0f0f0", color: chalMonthly ? "#fff" : "#666" }}>毎月の号（○月号）</button>
+              <button onClick={function () { setChalMonthly(false); }} style={{ ...S.smBtn, flex: 1, background: !chalMonthly ? ch.color : "#f0f0f0", color: !chalMonthly ? "#fff" : "#666" }}>回数だけ（プリント）</button>
+            </div>
+            <div style={{ fontSize: 10, color: "#999", marginBottom: 8, lineHeight: 1.5 }}>{chalMonthly ? "毎月「○月号」で管理します（チャレンジなど）。" : "第1回〜第N回だけで管理します（プリント集など。1回＝表裏1枚）。月号なし。"}</div>
+            <input value={chalName} onChange={function (e) { setChalName(e.target.value); }} placeholder={chalMonthly ? "名前（例：チャレンジ国語）" : "名前（例：計算プリント）"} style={S.input} />
+            <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
               <select value={chalSubj} onChange={function (e) { setChalSubj(e.target.value); }} style={{ ...S.input, flex: 1 }}>{ch.subjects.map(function (s) { return <option key={s} value={s}>{s}</option>; })}</select>
-              <input type="number" value={chalUnits} onChange={function (e) { setChalUnits(e.target.value); }} placeholder="回数" style={{ ...S.input, width: 50, flex: "none" }} />
-              <input type="number" value={chalMin} onChange={function (e) { setChalMin(e.target.value); }} placeholder="分/回" style={{ ...S.input, width: 50, flex: "none" }} />
+              <input type="number" value={chalUnits} onChange={function (e) { setChalUnits(e.target.value); }} placeholder={chalMonthly ? "回数" : "全何回"} title={chalMonthly ? "回数" : "全何回（例：40）"} style={{ ...S.input, width: 64, flex: "none" }} />
+              <input type="number" value={chalMin} onChange={function (e) { setChalMin(e.target.value); }} placeholder="分/回" style={{ ...S.input, width: 54, flex: "none" }} />
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "#666" }}>テストあり</span>
@@ -3490,14 +3499,14 @@ function WorkbooksTab(p) {
                       <button onClick={function () { setEditTestDoneVal(!editTestDoneVal); }} style={{ ...S.smBtn, background: editTestDoneVal ? "#4CAF50" : "#e0e0e0", color: editTestDoneVal ? "#fff" : "#999", fontSize: 11, minWidth: 56 }}>{editTestDoneVal ? "完了" : "未"}</button>
                     </span>
                   )}
-                  <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginLeft: 6 }}><span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号:</span><input type="number" value={editMonthVal} onChange={function (e) { setEditMonthVal(e.target.value); }} min="1" max="12" style={{ ...S.input, width: 48, textAlign: "center", padding: "4px 6px" }} /><span style={{ fontSize: 11, color: "#999" }}>月号</span></span>
+                  {wb.monthly !== false && <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginLeft: 6 }}><span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号:</span><input type="number" value={editMonthVal} onChange={function (e) { setEditMonthVal(e.target.value); }} min="1" max="12" style={{ ...S.input, width: 48, textAlign: "center", padding: "4px 6px" }} /><span style={{ fontSize: 11, color: "#999" }}>月号</span></span>}
                   <button onClick={function () { saveEditUnits(wb.id); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", fontSize: 11 }}>保存</button>
                   <button onClick={cancelEditUnits} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>×</button>
                 </div>
               )}
               {isP && (
                 <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                  {allDone && <button onClick={function () { resetChallenge(wb.id); }} style={{ ...S.smBtn, background: "#2196F3", color: "#fff", fontSize: 10 }}>🔄 来月号にリセット</button>}
+                  {allDone && wb.monthly !== false && <button onClick={function () { resetChallenge(wb.id); }} style={{ ...S.smBtn, background: "#2196F3", color: "#fff", fontSize: 10 }}>🔄 来月号にリセット</button>}
                   <button onClick={function () { deleteWb(wb.id); }} style={{ ...S.smBtn, background: "#eee", color: "#999", fontSize: 10 }}>🗑 削除</button>
                 </div>
               )}
@@ -4271,10 +4280,10 @@ function ReviewTab(p) {
                           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                             <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>📕 どれを記録？</span>
                             <select value={_selVal} onChange={function (e) { setAddWbUnit(e.target.value); }} style={{ ...S.input, flex: 1, minWidth: 100 }}>{_opts}</select>
-                            <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>
-                            <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                            {selWb.monthly !== false && <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>}
+                            {selWb.monthly !== false && <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />}
                           </div>
-                          <div style={{ fontSize: 10, color: "#B08900", marginTop: 4 }}>※古い回は自動で選ばれません。やった回・月号を選べます。</div>
+                          <div style={{ fontSize: 10, color: "#B08900", marginTop: 4 }}>※古い回は自動で選ばれません。やった回{selWb.monthly !== false ? "・月号" : ""}を選べます。</div>
                         </div>
                       );
                     }
