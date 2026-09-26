@@ -117,7 +117,7 @@ function PassModal(p) {
     }
   };
   var inp = function (val, set, ph) {
-    return <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={val}
+    return <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={val}
       onChange={function (e) { set(e.target.value.replace(/[^0-9]/g, "")); setErr(""); }}
       placeholder={ph} style={{ width: 150, textAlign: "center", fontSize: 28, letterSpacing: 10, padding: "10px 0", borderRadius: 12, border: "2px solid #ccc", fontFamily: "inherit" }} />;
   };
@@ -1289,11 +1289,11 @@ function WeekPlanCard(p) {
           })}
         </div>
         <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>タスク名</div>
-        <input value={editLabel} onChange={function (e) { setEditLabel(e.target.value); }} style={{ ...S.input, marginBottom: 4 }} />
+        <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={editLabel} onChange={function (e) { setEditLabel(e.target.value); }} style={{ ...S.input, marginBottom: 4 }} />
         {_isWb && <div style={{ fontSize: 10, color: "#B08900", marginBottom: 6, lineHeight: 1.5 }}>※問題集のタスクは、曜日を変えるとページ番号が自動で付け直されます。</div>}
         <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
           <span style={{ fontSize: 11, color: "#666" }}>目安</span>
-          <input type="number" value={editMin} onChange={function (e) { setEditMin(e.target.value); }} placeholder="10" style={{ ...S.input, width: 50, textAlign: "center" }} /><span style={{ fontSize: 11, color: "#999" }}>分</span>
+          <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={editMin} onChange={function (e) { setEditMin(e.target.value); }} placeholder="10" style={{ ...S.input, width: 50, textAlign: "center" }} /><span style={{ fontSize: 11, color: "#999" }}>分</span>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button onClick={cancelEdit} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>✕</button>
@@ -1514,7 +1514,7 @@ function WeekPlanCard(p) {
                       })}
                     </div>
                     <div style={{ fontSize: 11, color: "#888", marginBottom: 6, lineHeight: 1.6 }}>1行に1つ。単語のあとに読みも書けます（例：<b>海水　かいすい</b>）。明日のテスト範囲などを、その日を選んで指定できます。「●」は指定ずみの日。空にして保存すると自動（苦手）にもどります。</div>
-                    <textarea value={noteText} onChange={function (e) { setNoteText(e.target.value); }} rows={6} style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", lineHeight: 1.7 }} />
+                    <textarea autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={noteText} onChange={function (e) { setNoteText(e.target.value); }} rows={6} style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", lineHeight: 1.7 }} />
                     <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
                       <button onClick={saveNoteEdit} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}>この日に保存</button>
                       <button onClick={resetNoteAuto} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666" }}>自動にもどす</button>
@@ -1678,7 +1678,7 @@ function WeekPlanCard(p) {
                         </div>
                         {naddWbId
                           ? <select value={naddWbId} onChange={function (e) { setNaddWbId(e.target.value); }} style={{ ...S.input, marginBottom: 4 }}>{wbs.map(function (wb) { return <option key={wb.id} value={wb.id}>{wb.name}</option>; })}</select>
-                          : <input value={naddLabel} onChange={function (e) { setNaddLabel(e.target.value); }} placeholder="例: プリント1枚" style={{ ...S.input, marginBottom: 4 }} />}
+                          : <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={naddLabel} onChange={function (e) { setNaddLabel(e.target.value); }} placeholder="例: プリント1枚" style={{ ...S.input, marginBottom: 4 }} />}
                         <button onClick={addNextTask} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%" }}>{dayNames[naddDay]}よう日に追加</button>
                       </div>
                       <button onClick={regenNext} style={{ ...S.smBtn, background: "#fff", color: "#E53935", border: "1px solid #E53935", width: "100%", marginTop: 6 }}>来週を作り直す</button>
@@ -1697,7 +1697,7 @@ function WeekPlanCard(p) {
                       return <button key={off} onClick={function () { setKanjiAddOff(off); }} style={{ ...S.smBtn, background: kanjiAddOff === off ? ch.color : "#f0f0f0", color: kanjiAddOff === off ? "#fff" : "#666", fontSize: 11, minWidth: 34, padding: "6px 8px" }}>{lbl}{nextWk ? "(来週)" : ""}</button>;
                     })}
                   </div>
-                  <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, marginBottom: 6 }} />
+                  <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, marginBottom: 6 }} />
                   <div style={{ fontSize: 10, color: "#999", marginBottom: 6, lineHeight: 1.5 }}>入れた漢字は「間違えた漢字リスト」に登録され、その日から漢字テストに出ます。練習タスクも今週のタスクに追加されます。</div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={function () { setKanjiAddOpen(false); setKanjiInput(""); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>✕</button>
@@ -1748,7 +1748,7 @@ function WeekPlanCard(p) {
                               <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>📕 どれを</span>
                               <select value={_selVal} onChange={function (e) { setAddWbUnit(e.target.value); }} style={{ ...S.input, flex: 1, minWidth: 100 }}>{_opts}</select>
                               {selWb.monthly !== false && <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>}
-                              {selWb.monthly !== false && <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />}
+                              {selWb.monthly !== false && <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />}
                             </div>
                             <div style={{ fontSize: 10, color: "#B08900", marginTop: 4 }}>※古い回は自動で選ばれません。やりたい回{selWb.monthly !== false ? "・月号" : ""}を選べます。</div>
                           </div>
@@ -1757,13 +1757,13 @@ function WeekPlanCard(p) {
                     </div>
                   ) : (
                     <div>
-                      <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 間違いなおし" style={{ ...S.input, marginBottom: 6 }} />
-                      <input value={addFreePages} onChange={function (e) { setAddFreePages(e.target.value); }} placeholder="ページ（任意）例: P12〜15" style={{ ...S.input, marginBottom: 6 }} />
+                      <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 間違いなおし" style={{ ...S.input, marginBottom: 6 }} />
+                      <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={addFreePages} onChange={function (e) { setAddFreePages(e.target.value); }} placeholder="ページ（任意）例: P12〜15" style={{ ...S.input, marginBottom: 6 }} />
                     </div>
                   )}
                   <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontSize: 11, color: "#666" }}>目安</span>
-                    <input type="number" value={addMin} onChange={function (e) { setAddMin(e.target.value); }} placeholder="10" style={{ ...S.input, width: 50, textAlign: "center" }} /><span style={{ fontSize: 11, color: "#999" }}>分</span>
+                    <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={addMin} onChange={function (e) { setAddMin(e.target.value); }} placeholder="10" style={{ ...S.input, width: 50, textAlign: "center" }} /><span style={{ fontSize: 11, color: "#999" }}>分</span>
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={function () { setAddOpen(false); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>✕</button>
@@ -1963,7 +1963,7 @@ function PetTab(p) {
       <div style={{ ...S.card, background: "linear-gradient(135deg,#FFF3E0,#FFFDF8)", textAlign: "center" }}>
         {nameEdit ? (
           <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
-            <input value={nameVal} autoFocus onChange={function (e) { setNameVal(e.target.value); }} onKeyDown={function (e) { if (e.key === "Enter") saveName(); }} placeholder="なまえ" maxLength={10} style={{ ...S.input, width: 150, textAlign: "center", fontSize: 16 }} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={nameVal} autoFocus onChange={function (e) { setNameVal(e.target.value); }} onKeyDown={function (e) { if (e.key === "Enter") saveName(); }} placeholder="なまえ" maxLength={10} style={{ ...S.input, width: 150, textAlign: "center", fontSize: 16 }} />
             <button onClick={saveName} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>けってい</button>
             <button onClick={function () { setNameEdit(false); }} style={{ ...S.smBtn, background: "#eee", color: "#999" }}>やめる</button>
           </div>
@@ -2843,7 +2843,7 @@ function TodayPlanCard(p) {
                       {selWb.monthly !== false && (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
                         <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>
-                        <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 54, textAlign: "center" }} />
+                        <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 54, textAlign: "center" }} />
                         <span style={{ fontSize: 11, color: "#999" }}>月号（8月号を飛ばして9月号なども指定できます）</span>
                       </div>
                       )}
@@ -2854,7 +2854,7 @@ function TodayPlanCard(p) {
                 return (
                   <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontSize: 11, color: "#666" }}>ページ数</span>
-                    <input type="number" value={addWbPages} onChange={function (e) { setAddWbPages(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                    <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={addWbPages} onChange={function (e) { setAddWbPages(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
                   </div>
                 );
               })()}
@@ -2863,10 +2863,10 @@ function TodayPlanCard(p) {
           ) : (
             <div>
               <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 間違いなおし" style={{ ...S.input, flex: 1 }} />
+                <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 間違いなおし" style={{ ...S.input, flex: 1 }} />
               </div>
               <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                <input value={addFreePages} onChange={function (e) { setAddFreePages(e.target.value); }} placeholder="ページ（任意）例: P12〜15" style={{ ...S.input, flex: 1 }} />
+                <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={addFreePages} onChange={function (e) { setAddFreePages(e.target.value); }} placeholder="ページ（任意）例: P12〜15" style={{ ...S.input, flex: 1 }} />
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <select value={addSubj} onChange={function (e) { setAddSubj(e.target.value); }} style={{ ...S.input, flex: 1 }}>
@@ -2884,7 +2884,7 @@ function TodayPlanCard(p) {
         <div style={{ marginTop: 8, padding: 10, background: "#F3E5F5", borderRadius: 10 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ {dayLabel}の漢字練習を追加</div>
           <div style={{ display: "flex", gap: 6 }}>
-            <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, flex: 1, fontSize: 15, textAlign: "center" }} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, flex: 1, fontSize: 15, textAlign: "center" }} />
             <button onClick={addKanji} style={{ ...S.smBtn, background: "#9C27B0", color: "#fff", whiteSpace: "nowrap" }}>追加</button>
           </div>
           <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>スペース区切りで複数登録できます。「{dayLabel}」のやることに追加されます（叡志・優珠綺は間違えた漢字リストにも登録）。</div>
@@ -2901,7 +2901,7 @@ function TodayPlanCard(p) {
             <div style={{ padding: 10, background: "#F3E5F5", borderRadius: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ 練習したい漢字を入力</div>
               <div style={{ display: "flex", gap: 6 }}>
-                <input value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, fontSize: 15, textAlign: "center" }} />
+                <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, fontSize: 15, textAlign: "center" }} />
                 <button onClick={addKanji} style={{ ...S.smBtn, background: "#9C27B0", color: "#fff", whiteSpace: "nowrap" }}>追加</button>
                 <button onClick={function () { setShowKanji(false); setKanjiInput(""); }} style={{ ...S.smBtn, background: "#eee", color: "#999" }}>✕</button>
               </div>
@@ -3235,17 +3235,17 @@ function TasksTab(p) {
       {!isP && isM && <div style={{ background: "#FFFDE7", borderRadius: 12, padding: 10, marginBottom: 10, fontSize: 13, color: "#8D6E00" }}>✅ チェック → ポイントGET！ ⏱️でタイマーも使えるよ</div>}
       {show && (
         <div style={{ ...S.card, animation: "slideUp .2s ease" }}>
-          <input value={title} onChange={function (e) { setTitle(e.target.value); }} placeholder="タスク内容" style={S.input} />
+          <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={title} onChange={function (e) { setTitle(e.target.value); }} placeholder="タスク内容" style={S.input} />
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <select value={subj} onChange={function (e) { setSubj(e.target.value); }} style={{ ...S.input, flex: 1 }}>
               {ch.subjects.map(function (s) { return <option key={s} value={s}>{s}</option>; })}
             </select>
-            <input type="date" value={due} onChange={function (e) { setDue(e.target.value); }} style={{ ...S.input, flex: 1 }} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="date" value={due} onChange={function (e) { setDue(e.target.value); }} style={{ ...S.input, flex: 1 }} />
           </div>
           {isM && (
             <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
               <span style={{ fontSize: 11, color: "#666" }}>⭐pt</span>
-              <input type="number" min="1" value={pts} onChange={function (e) { setPts(e.target.value); }} style={{ ...S.input, width: 60 }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" min="1" value={pts} onChange={function (e) { setPts(e.target.value); }} style={{ ...S.input, width: 60 }} />
             </div>
           )}
           <button onClick={add} style={{ ...S.subBtn, background: ch.color, marginTop: 10 }}>登録</button>
@@ -3447,11 +3447,11 @@ function WorkbooksTab(p) {
               <button onClick={function () { setChalMonthly(false); }} style={{ ...S.smBtn, flex: 1, background: !chalMonthly ? ch.color : "#f0f0f0", color: !chalMonthly ? "#fff" : "#666" }}>回数だけ（プリント）</button>
             </div>
             <div style={{ fontSize: 10, color: "#999", marginBottom: 8, lineHeight: 1.5 }}>{chalMonthly ? "毎月「○月号」で管理します（チャレンジなど）。" : "第1回〜第N回だけで管理します（プリント集など。1回＝表裏1枚）。月号なし。"}</div>
-            <input value={chalName} onChange={function (e) { setChalName(e.target.value); }} placeholder={chalMonthly ? "名前（例：チャレンジ国語）" : "名前（例：計算プリント）"} style={S.input} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={chalName} onChange={function (e) { setChalName(e.target.value); }} placeholder={chalMonthly ? "名前（例：チャレンジ国語）" : "名前（例：計算プリント）"} style={S.input} />
             <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
               <select value={chalSubj} onChange={function (e) { setChalSubj(e.target.value); }} style={{ ...S.input, flex: 1 }}>{ch.subjects.map(function (s) { return <option key={s} value={s}>{s}</option>; })}</select>
-              <input type="number" value={chalUnits} onChange={function (e) { setChalUnits(e.target.value); }} placeholder={chalMonthly ? "回数" : "全何回"} title={chalMonthly ? "回数" : "全何回（例：40）"} style={{ ...S.input, width: 64, flex: "none" }} />
-              <input type="number" value={chalMin} onChange={function (e) { setChalMin(e.target.value); }} placeholder="分/回" style={{ ...S.input, width: 54, flex: "none" }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={chalUnits} onChange={function (e) { setChalUnits(e.target.value); }} placeholder={chalMonthly ? "回数" : "全何回"} title={chalMonthly ? "回数" : "全何回（例：40）"} style={{ ...S.input, width: 64, flex: "none" }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={chalMin} onChange={function (e) { setChalMin(e.target.value); }} placeholder="分/回" style={{ ...S.input, width: 54, flex: "none" }} />
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "#666" }}>テストあり</span>
@@ -3499,7 +3499,7 @@ function WorkbooksTab(p) {
                       <button onClick={function () { setEditTestDoneVal(!editTestDoneVal); }} style={{ ...S.smBtn, background: editTestDoneVal ? "#4CAF50" : "#e0e0e0", color: editTestDoneVal ? "#fff" : "#999", fontSize: 11, minWidth: 56 }}>{editTestDoneVal ? "完了" : "未"}</button>
                     </span>
                   )}
-                  {wb.monthly !== false && <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginLeft: 6 }}><span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号:</span><input type="number" value={editMonthVal} onChange={function (e) { setEditMonthVal(e.target.value); }} min="1" max="12" style={{ ...S.input, width: 48, textAlign: "center", padding: "4px 6px" }} /><span style={{ fontSize: 11, color: "#999" }}>月号</span></span>}
+                  {wb.monthly !== false && <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginLeft: 6 }}><span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号:</span><input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={editMonthVal} onChange={function (e) { setEditMonthVal(e.target.value); }} min="1" max="12" style={{ ...S.input, width: 48, textAlign: "center", padding: "4px 6px" }} /><span style={{ fontSize: 11, color: "#999" }}>月号</span></span>}
                   <button onClick={function () { saveEditUnits(wb.id); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", fontSize: 11 }}>保存</button>
                   <button onClick={cancelEditUnits} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>×</button>
                 </div>
@@ -3537,16 +3537,16 @@ function WorkbooksTab(p) {
         </div>
         {showAddPage && (
           <div style={{ padding: 10, background: "#f9f9f9", borderRadius: 10, marginBottom: 10 }}>
-            <input value={pageName} onChange={function (e) { setPageName(e.target.value); }} placeholder="名前（例：漢字MAXドリル小4）" style={S.input} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={pageName} onChange={function (e) { setPageName(e.target.value); }} placeholder="名前（例：漢字MAXドリル小4）" style={S.input} />
             <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
               <select value={pageSubj} onChange={function (e) { setPageSubj(e.target.value); }} style={{ ...S.input, flex: 1 }}>{ch.subjects.map(function (s) { return <option key={s} value={s}>{s}</option>; })}</select>
-              <input type="number" value={pageTotal} onChange={function (e) { setPageTotal(e.target.value); }} placeholder="総ページ" style={{ ...S.input, width: 60, flex: "none" }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={pageTotal} onChange={function (e) { setPageTotal(e.target.value); }} placeholder="総ページ" style={{ ...S.input, width: 60, flex: "none" }} />
             </div>
             <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-              <input type="number" value={pageMin} onChange={function (e) { setPageMin(e.target.value); }} placeholder="分/p" style={{ ...S.input, width: 50, flex: "none" }} />
-              <input type="number" value={pageDaily} onChange={function (e) { setPageDaily(e.target.value); }} placeholder="毎日p（任意）" style={{ ...S.input, flex: 1 }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={pageMin} onChange={function (e) { setPageMin(e.target.value); }} placeholder="分/p" style={{ ...S.input, width: 50, flex: "none" }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={pageDaily} onChange={function (e) { setPageDaily(e.target.value); }} placeholder="毎日p（任意）" style={{ ...S.input, flex: 1 }} />
             </div>
-            <input value={pageNote} onChange={function (e) { setPageNote(e.target.value); }} placeholder="メモ（任意）" style={{ ...S.input, marginTop: 6 }} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={pageNote} onChange={function (e) { setPageNote(e.target.value); }} placeholder="メモ（任意）" style={{ ...S.input, marginTop: 6 }} />
             <button onClick={addPageBook} style={{ ...S.smBtn, background: ch.color, color: "#fff", width: "100%", marginTop: 6, padding: 8 }}>追加</button>
           </div>
         )}
@@ -3582,7 +3582,7 @@ function WorkbooksTab(p) {
                   <div style={{ fontSize: 11, color: "#E65100", marginBottom: 4, lineHeight: 1.5 }}>今、学校でやっているページ番号を入れてください。手前のまだやっていないページは「あとでやる」に退避します。</div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     <span style={{ fontSize: 11, color: "#666" }}>今のページ</span>
-                    <input type="number" value={jumpVal} onChange={function (e) { setJumpVal(e.target.value); }} placeholder={String(done + 1)} min={done + 2} max={total} style={{ ...S.input, width: 64, textAlign: "center", padding: "4px 6px" }} />
+                    <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={jumpVal} onChange={function (e) { setJumpVal(e.target.value); }} placeholder={String(done + 1)} min={done + 2} max={total} style={{ ...S.input, width: 64, textAlign: "center", padding: "4px 6px" }} />
                     <button onClick={function () { doJump(wb.id); }} style={{ ...S.smBtn, background: "#FF9800", color: "#fff", fontSize: 11 }}>ジャンプ</button>
                     <button onClick={function () { setJumpId(null); }} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>×</button>
                   </div>
@@ -3604,7 +3604,7 @@ function WorkbooksTab(p) {
               {isP && editPagesId === wb.id && (
                 <div style={{ marginTop: 8, padding: 8, background: "#FFFDE7", borderRadius: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>完了ページ:</span>
-                  <input type="number" value={editPagesVal} onChange={function (e) { setEditPagesVal(e.target.value); }} min="0" max={total} style={{ ...S.input, width: 60, textAlign: "center", padding: "4px 6px" }} />
+                  <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={editPagesVal} onChange={function (e) { setEditPagesVal(e.target.value); }} min="0" max={total} style={{ ...S.input, width: 60, textAlign: "center", padding: "4px 6px" }} />
                   <span style={{ fontSize: 11, color: "#999" }}>/ {total}p</span>
                   <button onClick={function () { saveEditPages(wb.id); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", fontSize: 11 }}>保存</button>
                   <button onClick={cancelEditPages} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>×</button>
@@ -3745,7 +3745,7 @@ function PointsTab(p) {
               <div key={item.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>{item.label}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <input type="number" value={planPts[item.key]} onChange={function (e) { savePlanCfg(item.key, e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center", padding: "4px" }} />
+                  <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={planPts[item.key]} onChange={function (e) { savePlanCfg(item.key, e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center", padding: "4px" }} />
                   <span style={{ fontSize: 11, color: "#999" }}>pt</span>
                 </div>
               </div>
@@ -3761,11 +3761,11 @@ function PointsTab(p) {
               return (
                 <div key={cat.id} style={{ padding: 10, borderRadius: 14, border: "2px solid " + ch.color, background: "#fff" }}>
                   <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                    <input value={editEmj} onChange={function (e) { setEditEmj(e.target.value); }} style={{ ...S.input, width: 36, textAlign: "center", padding: "4px" }} />
-                    <input value={editName} onChange={function (e) { setEditName(e.target.value); }} style={{ ...S.input, flex: 1, padding: "4px 6px" }} />
+                    <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={editEmj} onChange={function (e) { setEditEmj(e.target.value); }} style={{ ...S.input, width: 36, textAlign: "center", padding: "4px" }} />
+                    <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={editName} onChange={function (e) { setEditName(e.target.value); }} style={{ ...S.input, flex: 1, padding: "4px 6px" }} />
                   </div>
                   <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 6 }}>
-                    <input type="number" value={editPts} onChange={function (e) { setEditPts(e.target.value); }} style={{ ...S.input, width: 44, textAlign: "center", padding: "4px" }} />
+                    <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={editPts} onChange={function (e) { setEditPts(e.target.value); }} style={{ ...S.input, width: 44, textAlign: "center", padding: "4px" }} />
                     <span style={{ fontSize: 11, color: "#999" }}>pt</span>
                   </div>
                   <div style={{ display: "flex", gap: 4 }}>
@@ -3791,9 +3791,9 @@ function PointsTab(p) {
       {showAdd && (
         <div style={{ ...S.card, animation: "slideUp .2s ease" }}>
           <div style={{ display: "flex", gap: 6 }}>
-            <input value={emj} onChange={function (e) { setEmj(e.target.value); }} style={{ ...S.input, width: 44, textAlign: "center" }} />
-            <input value={name} onChange={function (e) { setName(e.target.value); }} placeholder="項目名" style={{ ...S.input, flex: 1 }} />
-            <input type="number" value={ptV} onChange={function (e) { setPtV(e.target.value); }} style={{ ...S.input, width: 50 }} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={emj} onChange={function (e) { setEmj(e.target.value); }} style={{ ...S.input, width: 44, textAlign: "center" }} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={name} onChange={function (e) { setName(e.target.value); }} placeholder="項目名" style={{ ...S.input, flex: 1 }} />
+            <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={ptV} onChange={function (e) { setPtV(e.target.value); }} style={{ ...S.input, width: 50 }} />
           </div>
           <button onClick={addCat} style={{ ...S.subBtn, background: ch.color, marginTop: 8 }}>追加</button>
         </div>
@@ -4219,9 +4219,9 @@ function ReviewTab(p) {
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "#333", marginBottom: 4 }}>{l.title}{l.subject ? "（" + l.subject + "）" : ""}</div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input type="number" value={editMin} onChange={function (e) { setEditMin(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                      <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={editMin} onChange={function (e) { setEditMin(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
                       <span style={{ fontSize: 11, color: "#999" }}>分</span>
-                      <input type="number" value={editSec} onChange={function (e) { setEditSec(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                      <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={editSec} onChange={function (e) { setEditSec(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
                       <span style={{ fontSize: 11, color: "#999" }}>秒</span>
                       <button onClick={saveEditLog} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff" }}>保存</button>
                       <button onClick={function () { setEditLogId(null); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>×</button>
@@ -4281,7 +4281,7 @@ function ReviewTab(p) {
                             <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>📕 どれを記録？</span>
                             <select value={_selVal} onChange={function (e) { setAddWbUnit(e.target.value); }} style={{ ...S.input, flex: 1, minWidth: 100 }}>{_opts}</select>
                             {selWb.monthly !== false && <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>月号</span>}
-                            {selWb.monthly !== false && <input type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />}
+                            {selWb.monthly !== false && <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" min="1" max="12" value={_mVal} onChange={function (e) { setAddWbMonth(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />}
                           </div>
                           <div style={{ fontSize: 10, color: "#B08900", marginTop: 4 }}>※古い回は自動で選ばれません。やった回{selWb.monthly !== false ? "・月号" : ""}を選べます。</div>
                         </div>
@@ -4290,14 +4290,14 @@ function ReviewTab(p) {
                     return (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
                         <span style={{ fontSize: 11, color: "#666" }}>ページ数</span>
-                        <input type="number" value={addWbPages} onChange={function (e) { setAddWbPages(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
+                        <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={addWbPages} onChange={function (e) { setAddWbPages(e.target.value); }} style={{ ...S.input, width: 50, textAlign: "center" }} />
                       </div>
                     );
                   })()}
                 </div>
               ) : (
                 <div style={{ marginBottom: 6 }}>
-                  <input value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 算数のプリント" style={{ ...S.input, marginBottom: 6 }} />
+                  <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={addLabel} onChange={function (e) { setAddLabel(e.target.value); }} placeholder="例: 算数のプリント" style={{ ...S.input, marginBottom: 6 }} />
                   <select value={addSubj} onChange={function (e) { setAddSubj(e.target.value); }} style={{ ...S.input }}>
                     {ch.subjects.map(function (sj) { return <option key={sj} value={sj}>{sj}</option>; })}
                     <option value="">なし</option>
@@ -4306,9 +4306,9 @@ function ReviewTab(p) {
               )}
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, marginBottom: 8 }}>
                 <span style={{ fontSize: 11, color: "#666" }}>学習時間</span>
-                <input type="number" value={addMin} onChange={function (e) { setAddMin(e.target.value); }} placeholder="0" style={{ ...S.input, width: 50, textAlign: "center" }} />
+                <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={addMin} onChange={function (e) { setAddMin(e.target.value); }} placeholder="0" style={{ ...S.input, width: 50, textAlign: "center" }} />
                 <span style={{ fontSize: 11, color: "#999" }}>分</span>
-                <input type="number" value={addSec} onChange={function (e) { setAddSec(e.target.value); }} placeholder="0" style={{ ...S.input, width: 50, textAlign: "center" }} />
+                <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={addSec} onChange={function (e) { setAddSec(e.target.value); }} placeholder="0" style={{ ...S.input, width: 50, textAlign: "center" }} />
                 <span style={{ fontSize: 11, color: "#999" }}>秒</span>
               </div>
               <div style={{ fontSize: 10, color: "#999", marginBottom: 8, lineHeight: 1.5 }}>※ 追加すると問題集の進捗が進み、ポイントも加算されます（🗑で削除すると取り消されます）。</div>
@@ -4475,9 +4475,9 @@ function RewardsTab(p) {
         {showAdd && (
           <div style={{ padding: 8, background: "#f9f9f9", borderRadius: 10, marginBottom: 10 }}>
             <div style={{ display: "flex", gap: 6 }}>
-              <input value={rE} onChange={function (e) { setRE(e.target.value); }} style={{ ...S.input, width: 40, textAlign: "center" }} />
-              <input value={rN} onChange={function (e) { setRN(e.target.value); }} placeholder="名前" style={{ ...S.input, flex: 1 }} />
-              <input type="number" value={rC} onChange={function (e) { setRC(e.target.value); }} style={{ ...S.input, width: 50 }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={rE} onChange={function (e) { setRE(e.target.value); }} style={{ ...S.input, width: 40, textAlign: "center" }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={rN} onChange={function (e) { setRN(e.target.value); }} placeholder="名前" style={{ ...S.input, flex: 1 }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={rC} onChange={function (e) { setRC(e.target.value); }} style={{ ...S.input, width: 50 }} />
             </div>
             <button onClick={addR} style={{ ...S.subBtn, background: ch.color, marginTop: 6, padding: 8, fontSize: 12 }}>追加</button>
           </div>
@@ -4725,7 +4725,7 @@ function TestsTab(p) {
             </div>
             {showTypeAdd && (
               <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                <input value={newType} onChange={function (e) { setNewType(e.target.value); }} placeholder="例：北辰テスト" style={{ ...S.input, flex: 1 }} />
+                <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={newType} onChange={function (e) { setNewType(e.target.value); }} placeholder="例：北辰テスト" style={{ ...S.input, flex: 1 }} />
                 <button onClick={addTestType} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>追加</button>
                 <button onClick={function () { setShowTypeAdd(false); setNewType(""); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>×</button>
               </div>
@@ -4747,7 +4747,7 @@ function TestsTab(p) {
             </div>
             {showSubjAdd && (
               <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                <input value={newSubj} onChange={function (e) { setNewSubj(e.target.value); }} placeholder="教科名" style={{ ...S.input, flex: 1 }} />
+                <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={newSubj} onChange={function (e) { setNewSubj(e.target.value); }} placeholder="教科名" style={{ ...S.input, flex: 1 }} />
                 <button onClick={addSubject} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>追加</button>
                 <button onClick={function () { setShowSubjAdd(false); setNewSubj(""); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>×</button>
               </div>
@@ -4774,11 +4774,11 @@ function TestsTab(p) {
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 10, color: "#999", marginBottom: 3 }}>テスト名</div>
-              <input value={addName} onChange={function (e) { setAddName(e.target.value); }} placeholder={addType} style={S.input} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={addName} onChange={function (e) { setAddName(e.target.value); }} placeholder={addType} style={S.input} />
             </div>
             <div style={{ flex: 0, minWidth: 120 }}>
               <div style={{ fontSize: 10, color: "#999", marginBottom: 3 }}>日付</div>
-              <input type="date" value={addDate} onChange={function (e) { setAddDate(e.target.value); }} style={S.input} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="date" value={addDate} onChange={function (e) { setAddDate(e.target.value); }} style={S.input} />
             </div>
           </div>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#666", marginBottom: 6 }}>点数</div>
@@ -4787,7 +4787,7 @@ function TestsTab(p) {
               return (
                 <div key={subj}>
                   <div style={{ fontSize: 10, color: "#999", marginBottom: 2, textAlign: "center" }}>{subj}</div>
-                  <input type="number" value={addScores[subj] || ""} onChange={function (e) { setScore(subj, e.target.value); }} placeholder="--" style={{ ...S.input, textAlign: "center", padding: "8px 4px" }} />
+                  <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={addScores[subj] || ""} onChange={function (e) { setScore(subj, e.target.value); }} placeholder="--" style={{ ...S.input, textAlign: "center", padding: "8px 4px" }} />
                 </div>
               );
             })}
@@ -4795,9 +4795,9 @@ function TestsTab(p) {
           {hasRank && (
             <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#666", whiteSpace: "nowrap" }}>順位</div>
-              <input type="number" value={addRank} onChange={function (e) { setAddRank(e.target.value); }} placeholder="順位" style={{ ...S.input, width: 60, textAlign: "center" }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={addRank} onChange={function (e) { setAddRank(e.target.value); }} placeholder="順位" style={{ ...S.input, width: 60, textAlign: "center" }} />
               <span style={{ fontSize: 12, color: "#999" }}>/</span>
-              <input type="number" value={addRankTotal} onChange={function (e) { setAddRankTotal(e.target.value); }} placeholder="人数" style={{ ...S.input, width: 60, textAlign: "center" }} />
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={addRankTotal} onChange={function (e) { setAddRankTotal(e.target.value); }} placeholder="人数" style={{ ...S.input, width: 60, textAlign: "center" }} />
               <span style={{ fontSize: 11, color: "#999" }}>人中</span>
             </div>
           )}
@@ -5152,11 +5152,11 @@ function KanjiTab(p) {
             {!hasCorpus && <div style={{ fontSize: 11, color: "#FF9800", background: "#FFF3E0", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>この学年の熟語データはまだ準備中です（登録され次第、自動で出題されます）。</div>}
             <div style={{ fontSize: 12, color: "#666", marginBottom: 8, lineHeight: 1.7 }}>習った <b style={{ color: ch.color }}>{nTaught}</b>字 ／ 集中 <b style={{ color: ch.color }}>{nFocus}</b>字 ／ 定着 <b style={{ color: "#2E7D32" }}>{nMaster}</b>字（全{chars.length}字）</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8, fontSize: 12, color: "#555" }}>
-              <span>1日<input type="number" value={st.dailyCap} onChange={function (e) { setStv("dailyCap", Math.max(1, parseInt(e.target.value) || 1)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />問まで</span>
-              <span>新しく<input type="number" value={st.newPerDay} onChange={function (e) { setStv("newPerDay", Math.max(0, parseInt(e.target.value) || 0)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />字/日</span>
+              <span>1日<input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={st.dailyCap} onChange={function (e) { setStv("dailyCap", Math.max(1, parseInt(e.target.value) || 1)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />問まで</span>
+              <span>新しく<input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={st.newPerDay} onChange={function (e) { setStv("newPerDay", Math.max(0, parseInt(e.target.value) || 0)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />字/日</span>
               <button onClick={function () { setStv("mixPrior", !st.mixPrior); }} style={{ ...S.smBtn, background: st.mixPrior ? ch.color : "#eee", color: st.mixPrior ? "#fff" : "#888", fontSize: 11 }}>前学年も混ぜる {st.mixPrior ? "ON" : "OFF"}</button>
               <button onClick={function () { setStv("noteOn", st.noteOn === false); }} style={{ ...S.smBtn, background: st.noteOn !== false ? "#FB8C00" : "#eee", color: st.noteOn !== false ? "#fff" : "#888", fontSize: 11 }}>苦手ノート {st.noteOn !== false ? "ON" : "OFF"}</button>
-              <span>ノート<input type="number" value={st.notePerDay == null ? 7 : st.notePerDay} onChange={function (e) { setStv("notePerDay", Math.max(1, parseInt(e.target.value) || 1)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />字/日</span>
+              <span>ノート<input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} type="number" value={st.notePerDay == null ? 7 : st.notePerDay} onChange={function (e) { setStv("notePerDay", Math.max(1, parseInt(e.target.value) || 1)); }} style={{ ...S.input, width: 46, textAlign: "center", padding: "3px", margin: "0 3px", display: "inline-block" }} />字/日</span>
             </div>
             <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>下のボタンで操作を選び、漢字をタップ：</div>
             <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
@@ -5170,7 +5170,7 @@ function KanjiTab(p) {
             <div style={{ marginBottom: 8, background: "#F3E5F5", borderRadius: 8, padding: 8 }}>
               <div style={{ fontSize: 11, color: "#7B1FA2", marginBottom: 4 }}>探さずに入力でまとめて選ぶ（例：楽 音 聞）。上で選んだ操作（{modes.find(function (m) { return m.k === srsMode; }).l}）が適用されます。</div>
               <div style={{ display: "flex", gap: 6 }}>
-                <input value={srsInput} onChange={function (e) { setSrsInput(e.target.value); }} placeholder="漢字を入力（スペース区切り可）" style={{ ...S.input, flex: 1 }} />
+                <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={srsInput} onChange={function (e) { setSrsInput(e.target.value); }} placeholder="漢字を入力（スペース区切り可）" style={{ ...S.input, flex: 1 }} />
                 <button onClick={function () { var cs = (srsInput || "").split("").filter(function (x) { return isKanjiC(x); }); if (cs.length) upd(function (d) { srsMark(d, ch.id, cs, srsMode, TD); }); setSrsInput(""); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}>適用</button>
               </div>
             </div>
@@ -5230,11 +5230,11 @@ function KanjiTab(p) {
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#795548", marginBottom: 8 }}>「{k.kanji}」の出題設定</div>
                       <div style={{ marginBottom: 8 }}>
                         <div style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>読み（ひらがな）</div>
-                        <input value={editReading} onChange={function (e) { setEditReading(e.target.value); }} placeholder="例: きかい" style={{ ...S.input, fontSize: 15 }} />
+                        <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={editReading} onChange={function (e) { setEditReading(e.target.value); }} placeholder="例: きかい" style={{ ...S.input, fontSize: 15 }} />
                       </div>
                       <div style={{ marginBottom: 10 }}>
                         <div style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>例文（読みを含む文章にするとその部分が強調されます）</div>
-                        <input value={editSentence} onChange={function (e) { setEditSentence(e.target.value); }} placeholder="例: きかいをうごかす" style={{ ...S.input, fontSize: 14 }} />
+                        <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={editSentence} onChange={function (e) { setEditSentence(e.target.value); }} placeholder="例: きかいをうごかす" style={{ ...S.input, fontSize: 14 }} />
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button onClick={saveEdit} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1, padding: "8px 0" }}>保存</button>
