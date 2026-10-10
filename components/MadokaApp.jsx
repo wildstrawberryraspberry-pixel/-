@@ -93,6 +93,22 @@ function dl(s) {
 function ft(s) {
   return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
 }
+// 2026-09-29 漢字テストのポイントを「その日1回だけ」付与（子の完了・お母さんの採点、どちらが先でも1回）。
+function giveKanjiTestPt(d, chId, date) {
+  if (!d.todayChecks) d.todayChecks = {};
+  if (!d.todayChecks[chId]) d.todayChecks[chId] = {};
+  if (!d.todayChecks[chId][date]) d.todayChecks[chId][date] = {};
+  var tc = d.todayChecks[chId][date];
+  if (tc["kanji_test_pt"]) return; // すでに付与ずみ＝二重付与しない
+  ensurePts(d, chId);
+  var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
+  var ptId = "kt" + Date.now();
+  d.points[chId].balance += ptAmt;
+  if (!d.points[chId].history) d.points[chId].history = [];
+  d.points[chId].history.push({ type: "earn", amount: ptAmt, reason: "漢字テスト", date: date, id: ptId });
+  tc["kanji_test_pt"] = ptId;
+  tc["kanji_test_ptAmt"] = ptAmt;
+}
 function ensurePts(d, cid) {
   if (!d.points) d.points = {};
   if (!d.points[cid]) d.points[cid] = { balance: 0, history: [] };
@@ -461,9 +477,13 @@ function kanjiDailyQueue(list, seedStr) {
   var h = 2166136261;
   for (var i = 0; i < seedStr.length; i++) { h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619); }
   var rand = function () { h += 0x6D2B79F5; var t = Math.imul(h ^ (h >>> 15), 1 | h); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  var arr = pool.slice();
-  for (var j = arr.length - 1; j > 0; j--) { var r = Math.floor(rand() * (j + 1)); var tmp = arr[j]; arr[j] = arr[r]; arr[r] = tmp; }
-  return arr.slice(0, 10);
+  // 2026-10-10 最近ためた「間違えた漢字」は積極的に出す（直近7日ぶんを先頭・新しい順）。残りは日替わりシャッフル。
+  var freshCut = srsAddDays(seedStr, -7);
+  var fresh = pool.filter(function (k) { return k.addedDate && k.addedDate > freshCut; });
+  var rest = pool.filter(function (k) { return !(k.addedDate && k.addedDate > freshCut); });
+  fresh.sort(function (a, b) { return a.addedDate < b.addedDate ? 1 : (a.addedDate > b.addedDate ? -1 : 0); });
+  for (var j = rest.length - 1; j > 0; j--) { var r = Math.floor(rand() * (j + 1)); var tmp = rest[j]; rest[j] = rest[r]; rest[r] = tmp; }
+  return fresh.concat(rest).slice(0, 10);
 }
 // ===== 既習漢字 定着SRS（2026-09-04 新設）=====
 var KANJI_CORPUS = {}; // {grade:{char:[{word,reading,type}]}} Supabaseのkanji_wordsから読み込み
@@ -575,6 +595,21 @@ function pickWordForChar(ch, char, seed, known) {
     if (pool.length) { var wpk = srsPick(pool, seed + ":" + char) || pool[0]; return { word: wpk.word, reading: wpk.reading || "", sentence: wpk.example || "" }; }
   }
   return { word: char, reading: "", sentence: "" };
+}
+// 2026-10-10 入力した語に一致する読み・例文をコーパスから探す（苦手リスト追加時に読みを自動補完→テストに出せる）。
+function corpusWordInfo(ch, word) {
+  if (!word) return null;
+  var chars = wordKanji(word); if (!chars.length) return null;
+  var grades = [srsCurGrade(ch)].concat(srsPriorGrades(ch));
+  for (var i = 0; i < grades.length; i++) {
+    var m = KANJI_CORPUS[grades[i]]; if (!m) continue;
+    for (var ci = 0; ci < chars.length; ci++) {
+      var ws = m[chars[ci]]; if (!ws) continue;
+      for (var wi = 0; wi < ws.length; wi++) { if (ws[wi].word === word) return { reading: ws[wi].reading || "", example: ws[wi].example || "" }; }
+    }
+  }
+  for (var g in KANJI_CORPUS) { var mm = KANJI_CORPUS[g]; for (var cc in mm) { var arr = mm[cc]; for (var ai = 0; ai < arr.length; ai++) { if (arr[ai].word === word) return { reading: arr[ai].reading || "", example: arr[ai].example || "" }; } } }
+  return null;
 }
 // 2026-09-21 日付→通し日数（決定的・端末非依存）。にがて漢字ノートの日替わりローテーションに使う。
 function dayIndexOf(ds) { var p = String(ds || "").split("-"); if (p.length < 3) return 0; var y = parseInt(p[0], 10), m = parseInt(p[1], 10), dd = parseInt(p[2], 10); if (!(y && m && dd)) return 0; return Math.floor(Date.UTC(y, m - 1, dd) / 86400000); }
@@ -925,6 +960,7 @@ function WeekPlanCard(p) {
   const [kanjiAddOpen, setKanjiAddOpen] = useState(false);
   const [kanjiInput, setKanjiInput] = useState("");
   const [kanjiAddOff, setKanjiAddOff] = useState(0);
+  const [kanjiAddMsg, setKanjiAddMsg] = useState(""); // 2026-10-10 「苦手リストにためる」追加後のフィードバック
   const [nextOpen, setNextOpen] = useState(false);
   const [naddWbId, setNaddWbId] = useState("");
   const [naddLabel, setNaddLabel] = useState("");
@@ -1173,6 +1209,37 @@ function WeekPlanCard(p) {
     save(d);
     setKanjiInput(""); setKanjiAddOpen(false);
   };
+  // 2026-10-10 日付なしで「間違えた漢字」を苦手リストにためる（練習タスクは作らない）。読みはコーパスから自動補完し、平日のテスト・ノートに優先して出す。
+  var addKanjiToPool = function () {
+    if (ch.id !== "eishi" && ch.id !== "yuzuki") return;
+    var words = (kanjiInput || "").trim().split(/[\s\u3001\uff0c,]+/).filter(function (w) { return w.trim(); });
+    if (words.length === 0) return;
+    var d = clone(data);
+    if (!d.kanjiList) d.kanjiList = {};
+    if (!d.kanjiList[ch.id]) d.kanjiList[ch.id] = [];
+    if (!d.kanjiHistory) d.kanjiHistory = {};
+    if (!d.kanjiHistory[ch.id]) d.kanjiHistory[ch.id] = [];
+    var known = knownKanjiSet(d, ch.id, ch);
+    var now = Date.now();
+    var added = [], dup = [];
+    words.forEach(function (w, wi) {
+      var exists = d.kanjiList[ch.id].find(function (k) { return k.kanji === w && !k.completed; });
+      if (exists) { dup.push(w); return; }
+      var item = { id: "kl" + (now + wi), kanji: w, addedDate: TD, correctStreak: 0, completed: false, wrong: 1 };
+      var info = corpusWordInfo(ch, w);
+      if (!info && w.length === 1) { var pk = pickWordForChar(ch, w, TD, known); if (pk && pk.word === w && pk.reading) info = { reading: pk.reading, example: pk.sentence || "" }; }
+      if (info && info.reading) { item.reading = info.reading; if (info.example) item.sentence = info.example; }
+      d.kanjiList[ch.id].push(item);
+      added.push(w);
+    });
+    if (added.length) d.kanjiHistory[ch.id].push({ date: TD, kanjis: added });
+    save(d);
+    setKanjiInput("");
+    var msg = "";
+    if (added.length) msg = "追加しました：" + added.join("、");
+    if (dup.length) msg += (msg ? " / " : "") + "すでにある：" + dup.join("、");
+    setKanjiAddMsg(msg);
+  };
   // 来週ぶんの事前プラン（週末に確認・微調整できる）
   var nextWk = nextWeekKeyOf(weekKey);
   var wn = (data.weekPlanNext && data.weekPlanNext[ch.id]) || null;
@@ -1322,6 +1389,7 @@ function WeekPlanCard(p) {
     if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
     d.todayChecks[ch.id][TD]["kanji_test"] = true;
     d.todayChecks[ch.id][TD]["label_kanji_test"] = "漢字テスト（" + kanjiActive.length + "問）";
+    giveKanjiTestPt(d, ch.id, TD); // 2026-09-29 テスト完了で即ポイント
     save(d);
     setKanjiTestIdx(-1);
   };
@@ -1687,22 +1755,25 @@ function WeekPlanCard(p) {
                 </div>
               ) : kanjiAddOpen ? (
                 <div style={{ padding: 8, background: "#F3E5F5", borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ まちがえた漢字の練習を追加</div>
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
-                    {[0, 1, 2, 3, 4, 5, 6].map(function (off) {
-                      var b = new Date(NOW); b.setDate(b.getDate() + off);
-                      var ds = b.getFullYear() + "-" + String(b.getMonth() + 1).padStart(2, "0") + "-" + String(b.getDate()).padStart(2, "0");
-                      var nextWk = weekStartKey(ds) !== weekKey;
-                      var lbl = off === 0 ? "今日" : off === 1 ? "明日" : dayNames[(todayIdx + off) % 7] + "よう日";
-                      return <button key={off} onClick={function () { setKanjiAddOff(off); }} style={{ ...S.smBtn, background: kanjiAddOff === off ? ch.color : "#f0f0f0", color: kanjiAddOff === off ? "#fff" : "#666", fontSize: 11, minWidth: 34, padding: "6px 8px" }}>{lbl}{nextWk ? "(来週)" : ""}</button>;
-                    })}
-                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#7B1FA2", marginBottom: 6 }}>✏️ まちがえた漢字を追加</div>
                   <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} value={kanjiInput} onChange={function (e) { setKanjiInput(e.target.value); }} placeholder="例: 空港 図書館（スペースで区切る）" style={{ ...S.input, marginBottom: 6 }} />
-                  <div style={{ fontSize: 10, color: "#999", marginBottom: 6, lineHeight: 1.5 }}>入れた漢字は「間違えた漢字リスト」に登録され、その日から漢字テストに出ます。練習タスクも今週のタスクに追加されます。</div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={function () { setKanjiAddOpen(false); setKanjiInput(""); }} style={{ ...S.smBtn, background: "#eee", color: "#666" }}>✕</button>
-                    <button onClick={addKanjiPractice} style={{ ...S.smBtn, background: "#9C27B0", color: "#fff", flex: 1 }}>追加</button>
+                  <button onClick={addKanjiToPool} style={{ ...S.smBtn, background: "#9C27B0", color: "#fff", width: "100%", marginBottom: 4 }}>➕ 苦手リストにためる（日付なし）</button>
+                  <div style={{ fontSize: 10, color: "#7B1FA2", marginBottom: 2, lineHeight: 1.5 }}>入れた字は「間違えた漢字リスト（苦手）」にたまり、平日の<b>漢字テスト</b>と<b>にがて漢字ノート</b>に優先して自動で出ます。続けて何回でも追加できます。</div>
+                  {kanjiAddMsg && <div style={{ fontSize: 11, color: "#2E7D32", fontWeight: 700, margin: "2px 0 4px" }}>{kanjiAddMsg}</div>}
+                  <div style={{ borderTop: "1px dashed #D1B3E0", margin: "8px 0 6px", paddingTop: 6 }}>
+                    <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>または、日付を選んで「漢字練習（書き取り）」タスクも作る：</div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                      {[0, 1, 2, 3, 4, 5, 6].map(function (off) {
+                        var b = new Date(NOW); b.setDate(b.getDate() + off);
+                        var ds = b.getFullYear() + "-" + String(b.getMonth() + 1).padStart(2, "0") + "-" + String(b.getDate()).padStart(2, "0");
+                        var nextWk = weekStartKey(ds) !== weekKey;
+                        var lbl = off === 0 ? "今日" : off === 1 ? "明日" : dayNames[(todayIdx + off) % 7] + "よう日";
+                        return <button key={off} onClick={function () { setKanjiAddOff(off); }} style={{ ...S.smBtn, background: kanjiAddOff === off ? ch.color : "#f0f0f0", color: kanjiAddOff === off ? "#fff" : "#666", fontSize: 11, minWidth: 34, padding: "6px 8px" }}>{lbl}{nextWk ? "(来週)" : ""}</button>;
+                      })}
+                    </div>
+                    <button onClick={addKanjiPractice} style={{ ...S.smBtn, background: "#fff", color: "#7B1FA2", border: "1px solid #CE93D8", width: "100%" }}>{kanjiAddOff === 0 ? "今日" : kanjiAddOff === 1 ? "明日" : dayNames[(todayIdx + kanjiAddOff) % 7] + "よう日"}に練習タスクを追加</button>
                   </div>
+                  <button onClick={function () { setKanjiAddOpen(false); setKanjiInput(""); setKanjiAddMsg(""); }} style={{ ...S.smBtn, background: "#eee", color: "#666", width: "100%" }}>✕ とじる</button>
                 </div>
               ) : !addOpen ? (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -2774,7 +2845,7 @@ function TodayPlanCard(p) {
                 <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}><Kid t={"← 前の問題"} ch={ch} data={data} on={!isP} /></button>
                 {kanjiTestIdx < _kanjiActive.length - 1
                   ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}><Kid t={"次の問題 →"} ch={ch} data={data} on={!isP} /></button>
-                  : <button onClick={function () { var d = clone(data); if (!d.todayChecks) d.todayChecks = {}; if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {}; if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {}; d.todayChecks[ch.id][TD]["kanji_test"] = true; d.todayChecks[ch.id][TD]["label_kanji_test"] = item.label; save(d); setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>}
+                  : <button onClick={function () { var d = clone(data); if (!d.todayChecks) d.todayChecks = {}; if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {}; if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {}; d.todayChecks[ch.id][TD]["kanji_test"] = true; d.todayChecks[ch.id][TD]["label_kanji_test"] = item.label; giveKanjiTestPt(d, ch.id, TD); save(d); setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>}
               </div>
               {kanjiTestIdx === _kanjiActive.length - 1 && (
                 <div style={{ textAlign: "center", fontSize: 11, color: "#888" }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>
@@ -5037,10 +5108,7 @@ function KanjiTab(p) {
     if (!d.kanjiTestResults[ch.id]) d.kanjiTestResults[ch.id] = {};
     d.kanjiTestResults[ch.id][gd] = {};
     ts.queue.forEach(function (q) { d.kanjiTestResults[ch.id][gd][q.id] = !!newResults[q.id]; if (q.srs && q.srsChar) srsApply(d, ch.id, q.srsChar, !!newResults[q.id], gd); });
-    ensurePts(d, ch.id);
-    var ptAmt = (d._pointConfig && d._pointConfig.taskDone) || 1;
-    d.points[ch.id].balance += ptAmt;
-    d.points[ch.id].history.push({ type: "earn", amount: ptAmt, reason: "漢字テスト完了", date: gd, id: "kp" + Date.now() });
+    giveKanjiTestPt(d, ch.id, gd); // 2026-09-29 子の完了で付与済みなら重複しない
     save(d);
     setTestState({ queue: ts.queue, idx: ts.idx, results: newResults, done: true, date: gd });
   };
