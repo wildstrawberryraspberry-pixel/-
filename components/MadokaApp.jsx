@@ -539,35 +539,25 @@ function srsGraduate(d, chId, char, date) { if (!isKanjiC(char)) return d; if (!
 function activeKanjiListSet(d, chId) { var s = {}; var list = (d.kanjiList && d.kanjiList[chId]) || []; list.forEach(function (k) { if (!k.completed) { wordKanji(k.kanji || "").forEach(function (c) { s[c] = 1; }); } }); return s; }
 function srsMark(d, chId, chars, mode, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; (chars || []).forEach(function (c) { if (mode === "remove") { if (d.kanjiSRS[chId][c]) { d.kanjiSRS[chId][c].taught = false; d.kanjiSRS[chId][c].focus = false; } return; } var s = d.kanjiSRS[chId][c] || { box: 0, seen: 0, wrong: 0 }; s.taught = true; s.focus = (mode === "focus"); if (!s.due) s.due = date; d.kanjiSRS[chId][c] = s; }); return d; }
 function kanjiListDueCount(d, chId, date) { var list = (d.kanjiList && d.kanjiList[chId]) || []; return list.filter(function (k) { return isKanjiDue(k, date) && k.reading && k.reading.trim(); }).length; }
+// 2026-10-13 既習SRSテストは「1字につき1問」（例文を文脈ヒントに、読み→漢字で書く）。
+//  旧版は例文中の全漢字を別問題に展開し、読みベースのトークナイザが語を誤分割（用紙→牛、自転車→点 等）して壊れていたため廃止。
+//  旧形式（tokens を持つ／id に "|" を含む）がキャッシュに残っていれば作り直す（自己修復）。
+function srsDayItems(d, chId, ch, date) {
+  var st = srsSettings(d, chId);
+  var room = Math.max(0, st.dailyCap - kanjiListDueCount(d, chId, date));
+  var arr = srsSelect(d, chId, ch, date, room, activeKanjiListSet(d, chId));
+  return arr.map(function (it) { return { id: it.id, srs: true, srsChar: it.srsChar, kanji: it.kanji, reading: it.reading, sentence: it.sentence || "", srsType: it.srsType || "", srsGrade: it.srsGrade }; });
+}
+function srsDayStale(cached) { return Array.isArray(cached) && cached.some(function (it) { return it && (it.tokens || (typeof it.id === "string" && it.id.indexOf("|") >= 0)); }); }
 function ensureSrsDay(d, chId, date) {
   var ch = childById(chId); if (!ch) return [];
   if (!d.kanjiSrsDay) d.kanjiSrsDay = {}; if (!d.kanjiSrsDay[chId]) d.kanjiSrsDay[chId] = {};
-  if (!d.kanjiSrsDay[chId][date]) {
-    var st = srsSettings(d, chId);
-    var room = Math.max(0, st.dailyCap - kanjiListDueCount(d, chId, date));
-    var arr = srsSelect(d, chId, ch, date, room, activeKanjiListSet(d, chId));
-    var tset = knownKanjiSet(d, chId, ch);
-    var expanded = [];
-    arr.forEach(function (it) {
-      var toks = it.sentence ? tokenizeKanjiSentence(it.sentence, tset, { word: it.kanji, reading: it.reading }) : [];
-      var blanks = toks.filter(function (t) { return t.type === "blank"; });
-      var hasTarget = blanks.some(function (b) { return it.srsChar && b.chars.indexOf(it.srsChar) >= 0; });
-      if (!blanks.length || !hasTarget) {
-        var no = blanks.length ? (blanks[blanks.length - 1].no + 1) : 1;
-        var fb = { type: "blank", no: no, read: it.reading || "", word: it.kanji, chars: (it.srsChar ? [it.srsChar] : wordKanji(it.kanji)) };
-        toks = toks.concat([fb]); blanks = blanks.concat([fb]);
-      }
-      blanks.forEach(function (bt) {
-        bt.chars.forEach(function (c, ci) {
-          expanded.push({ id: it.id + "|" + bt.no + "|" + ci, srs: true, srsChar: c, kanji: c, word: bt.word, reading: bt.read, blankRead: bt.read, sentence: it.sentence, tokens: toks, focusNo: bt.no, srsGrade: it.srsGrade });
-        });
-      });
-    });
-    d.kanjiSrsDay[chId][date] = expanded;
+  if (!d.kanjiSrsDay[chId][date] || srsDayStale(d.kanjiSrsDay[chId][date])) {
+    d.kanjiSrsDay[chId][date] = srsDayItems(d, chId, ch, date);
   }
   return d.kanjiSrsDay[chId][date];
 }
-function srsDayPreview(data, chId, date) { var ch = childById(chId); if (!ch) return []; if (data.kanjiSrsDay && data.kanjiSrsDay[chId] && data.kanjiSrsDay[chId][date]) return data.kanjiSrsDay[chId][date]; var st = srsSettings(data, chId); var room = Math.max(0, st.dailyCap - kanjiListDueCount(data, chId, date)); return srsSelect(data, chId, ch, date, room, activeKanjiListSet(data, chId)); }
+function srsDayPreview(data, chId, date) { var ch = childById(chId); if (!ch) return []; var cached = data.kanjiSrsDay && data.kanjiSrsDay[chId] && data.kanjiSrsDay[chId][date]; if (cached && !srsDayStale(cached)) return cached; return srsDayItems(data, chId, ch, date); }
 function effKanjiList(data, chId, date) { var base = (data.kanjiList && data.kanjiList[chId]) || []; var srs = srsDayPreview(data, chId, date); return base.concat(srs || []); }
 // ===== 苦手漢字ノート（2026-09-07）: 何度も間違えた字を毎日ノートに一行書く練習。テストとは別。=====
 function pickWordForChar(ch, char, seed, known) {
@@ -709,7 +699,9 @@ function freezeKanjiQ(d, chId, date) {
   if (!d.kanjiTestFrozen) d.kanjiTestFrozen = {};
   if (!d.kanjiTestFrozen[chId]) d.kanjiTestFrozen[chId] = {};
   var _srsQ = ensureSrsDay(d, chId, date);
-  if (!d.kanjiTestFrozen[chId][date] || !d.kanjiTestFrozen[chId][date].length) {
+  var _cur = d.kanjiTestFrozen[chId][date];
+  var _staleFrozen = Array.isArray(_cur) && _cur.some(function (id) { return typeof id === "string" && id.indexOf("|") >= 0; }); // 旧展開id → 作り直す
+  if (!_cur || !_cur.length || _staleFrozen) {
     var listQ = kanjiDailyQueue((d.kanjiList && d.kanjiList[chId]) || [], date);
     var q = listQ.concat(_srsQ || []);
     d.kanjiTestFrozen[chId][date] = q.map(function (k) { return k.id; });
@@ -720,12 +712,15 @@ function isKanjiTestDay(ds) { var p = (ds || "").split("-"); if (p.length !== 3)
 function readKanjiQ(data, chId, date) {
   var list = effKanjiList(data, chId, date);
   var ids = (data.kanjiTestFrozen && data.kanjiTestFrozen[chId] && data.kanjiTestFrozen[chId][date]) || null;
-  if (ids && ids.length) {
+  var staleFrozen = ids && ids.some(function (id) { return typeof id === "string" && id.indexOf("|") >= 0; }); // 旧展開idは使わない
+  if (ids && ids.length && !staleFrozen) {
     var byId = {};
     list.forEach(function (k) { byId[k.id] = k; });
     return ids.map(function (id) { return byId[id]; }).filter(function (k) { return k; });
   }
-  return kanjiDailyQueue(list, date);
+  // 凍結が無い/古いときは freeze と同じ構成（間違えた漢字リスト＋SRS）で組み直す
+  var listQ = kanjiDailyQueue((data.kanjiList && data.kanjiList[chId]) || [], date);
+  return listQ.concat(srsDayPreview(data, chId, date) || []);
 }
 // ===== 2026-06-06 ふりがな（学年別漢字表示）機能 =====
 // 学年別漢字配当表（教育漢字 小1-6、出典: みんなの知識 ちょっと便利帳 / 学習指導要領 学年別漢字配当表）。
