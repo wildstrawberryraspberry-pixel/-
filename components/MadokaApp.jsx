@@ -509,9 +509,11 @@ async function loadKanjiCorpus() {
 function srsYmd(dt) { return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"); }
 function srsAddDays(dateStr, n) { var p = dateStr.split("-"); var dt = new Date(+p[0], +p[1] - 1, +p[2]); dt.setDate(dt.getDate() + n); return srsYmd(dt); }
 function srsPick(arr, seedStr) { if (!arr || !arr.length) return null; var h = 2166136261; for (var i = 0; i < seedStr.length; i++) { h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619); } return arr[(h >>> 0) % arr.length]; }
-function srsSettings(d, chId) { var def = { on: true, dailyCap: (chId === "yuzuki" ? 6 : 8), newPerDay: (chId === "yuzuki" ? 3 : 5), mixPrior: true, noteOn: true, notePerDay: (chId === "yuzuki" ? 5 : 7) }; var s = (d.kanjiSettings && d.kanjiSettings[chId]) || {}; return Object.assign({}, def, s); }
+function srsSettings(d, chId) { var def = { on: true, dailyCap: 10, newPerDay: (chId === "yuzuki" ? 3 : 5), mixPrior: true, noteOn: true, notePerDay: (chId === "yuzuki" ? 5 : 7) }; var s = (d.kanjiSettings && d.kanjiSettings[chId]) || {}; return Object.assign({}, def, s); }
 function srsCurGrade(ch) { return gradeAllowed(ch) + 1; }
 function srsPriorGrades(ch) { var a = []; for (var g = 1; g <= gradeAllowed(ch); g++) a.push(g); return a; }
+// 2026-10-14 漢字テストの出題対象学年：1年〜max(現学年,4年)。苦手・集中が少なくても既習＋3/4年の先取りで埋められるようにする。
+function srsTestGrades(ch) { var cur = srsCurGrade(ch); var a = []; for (var g = 1; g <= cur; g++) a.push(g); return a; } // 1年〜今の学年（前学年までに習った既習＋現学年。未習の上位学年は出さない）
 function childById(id) { for (var i = 0; i < CHILDREN.length; i++) if (CHILDREN[i].id === id) return CHILDREN[i]; return null; }
 function srsSelect(d, chId, ch, date, roomLeft, exclude) {
   var st = srsSettings(d, chId); if (!st.on) return [];
@@ -531,7 +533,26 @@ function srsSelect(d, chId, ch, date, roomLeft, exclude) {
   for (i = 0; i < curReview.length && chosen.length < cap; i++) chosen.push(curReview[i]);
   var newCount = 0; for (i = 0; i < curNew.length && chosen.length < cap && newCount < st.newPerDay; i++) { chosen.push(curNew[i]); newCount++; }
   var heldBack = curNew.length > newCount;
-  if (st.mixPrior && chosen.length < cap && !heldBack) { var prior = []; priors.forEach(function (g) { prior = prior.concat(collect(g, false, true)); }); var pReview = prior.filter(function (x) { return (x.s.seen || 0) > 0; }).sort(sortTier); var pNew = prior.filter(function (x) { return (x.s.seen || 0) === 0; }).sort(sortTier); for (i = 0; i < pReview.length && chosen.length < cap; i++) chosen.push(pReview[i]); var pBud = Math.max(0, st.newPerDay - newCount); for (i = 0; i < pNew.length && chosen.length < cap && pBud > 0; i++) { chosen.push(pNew[i]); pBud--; } }
+  // 既習の復習＝現学年以外のテスト対象学年（優珠綺＝1・3・4年、叡志＝1〜4年）。未マークでも復習として拾う（allowUntaught）。
+  var reviewGrades = srsTestGrades(ch).filter(function (g) { return g !== curGrade; });
+  if (st.mixPrior && chosen.length < cap && !heldBack) { var prior = []; reviewGrades.forEach(function (g) { prior = prior.concat(collect(g, false, true)); }); var pReview = prior.filter(function (x) { return (x.s.seen || 0) > 0; }).sort(sortTier); var pNew = prior.filter(function (x) { return (x.s.seen || 0) === 0; }).sort(sortTier); for (i = 0; i < pReview.length && chosen.length < cap; i++) chosen.push(pReview[i]); var pBud = Math.max(0, st.newPerDay - newCount); for (i = 0; i < pNew.length && chosen.length < cap && pBud > 0; i++) { chosen.push(pNew[i]); pBud--; } }
+  // 2026-10-14 ②③ 苦手・集中が少なくても必ず cap(=10)問に。テスト対象学年を学年ごとに日替わり回転させ、学年を順番に巡回して埋める（既習の確認＋3・4年の先取りが毎日まんべんなく出る）。
+  if (chosen.length < cap) {
+    picked = {}; chosen.forEach(function (x) { picked[x.char] = 1; });
+    var day = dayIndexOf(date);
+    var lanes = srsTestGrades(ch).map(function (g) {
+      var arr = collect(g, g === curGrade, true, true).filter(function (x) { return !picked[x.char]; });
+      if (arr.length > 1) { var off = ((day % arr.length) + arr.length) % arr.length; arr = arr.slice(off).concat(arr.slice(0, off)); }
+      return arr;
+    });
+    var li = 0, guard = 0, maxGuard = cap * (lanes.length + 1) + 50;
+    while (chosen.length < cap && guard < maxGuard) {
+      guard++;
+      var lane = lanes[li % lanes.length]; li++;
+      if (lane && lane.length) { var x = lane.shift(); if (x && !picked[x.char]) { chosen.push(x); picked[x.char] = 1; } }
+      if (lanes.every(function (l) { return !l.length; })) break;
+    }
+  }
   return chosen.map(function (x) { var words = (KANJI_CORPUS[x.grade] && KANJI_CORPUS[x.grade][x.char]) || []; var w = srsPick(words, date + ":" + x.char + ":" + (x.s.seen || 0)) || { word: x.char, reading: "", type: "" }; return { id: "srs:" + chId + ":" + x.char + ":" + date, kanji: w.word, reading: w.reading || "", sentence: w.example || "", srs: true, srsChar: x.char, srsType: w.type || "", srsGrade: x.grade }; });
 }
 function srsApply(d, chId, srsChar, correct, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][srsChar] || { box: 0, taught: true, focus: true, seen: 0, wrong: 0 }; s.seen = (s.seen || 0) + 1; if (correct) { s.box = Math.min(SRS_MASTER_BOX, (s.box || 0) + 1); if (s.box >= SRS_MASTER_BOX) s.focus = false; } else { s.box = 1; s.wrong = (s.wrong || 0) + 1; } s.due = srsAddDays(date, SRS_INTERVALS[Math.min(s.box, SRS_INTERVALS.length - 1)]); d.kanjiSRS[chId][srsChar] = s; return d; }
@@ -952,6 +973,7 @@ function WeekPlanCard(p) {
   const [addDayIdx, setAddDayIdx] = useState(0);
   const [kanjiTestIdx, setKanjiTestIdx] = useState(-1);
   const [kanjiResultOpen, setKanjiResultOpen] = useState(false);
+  const [kanjiTestDate, setKanjiTestDate] = useState(TD); // 2026-10-14 漢字テストやり残し：見ている対象日（既定=今日）
   const [kanjiAddOpen, setKanjiAddOpen] = useState(false);
   const [kanjiInput, setKanjiInput] = useState("");
   const [kanjiAddOff, setKanjiAddOff] = useState(0);
@@ -1315,6 +1337,37 @@ function WeekPlanCard(p) {
       noteMissed.push({ ds: _mds, list: _mlist, label: (_mdt.getMonth() + 1) + "/" + _mdt.getDate() + "（" + dayNames[(_mdt.getDay() + 6) % 7] + "）" });
     }
   }
+  // 2026-10-14 やり残し漢字テスト：直近14日で未完了の平日テスト（子どもが後からできる）
+  var kanjiMissed = [];
+  if (ch.id === "eishi" || ch.id === "yuzuki") {
+    for (var _ki = 14; _ki >= 1; _ki--) {
+      var _kdt = new Date(NOW); _kdt.setDate(_kdt.getDate() - _ki);
+      var _kds = _kdt.getFullYear() + "-" + String(_kdt.getMonth() + 1).padStart(2, "0") + "-" + String(_kdt.getDate()).padStart(2, "0");
+      if (!isKanjiTestDay(_kds)) continue; // 土日は出さない
+      if (restSet[_kds]) continue; // お休みは出さない
+      var _kdone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_kds] && data.todayChecks[ch.id][_kds]["kanji_test"]);
+      if (_kdone) continue;
+      var _kq = readKanjiQ(data, ch.id, _kds);
+      if (!_kq || !_kq.length) continue;
+      kanjiMissed.push({ ds: _kds, count: _kq.length, label: (_kdt.getMonth() + 1) + "/" + _kdt.getDate() + "（" + dayNames[(_kdt.getDay() + 6) % 7] + "）" });
+    }
+  }
+  // 見ている対象日（今日 or やり残しの日）
+  var viewDate = kanjiTestDate || TD;
+  var viewQ = (viewDate === TD) ? kanjiActive : readKanjiQ(data, ch.id, viewDate);
+  var viewDone = (viewDate === TD) ? kanjiDone : !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][viewDate] && data.todayChecks[ch.id][viewDate]["kanji_test"]);
+  var viewLabel = "";
+  if (viewDate !== TD) { var _vp = viewDate.split("-"); var _vd = new Date(+_vp[0], +_vp[1] - 1, +_vp[2]); viewLabel = (_vd.getMonth() + 1) + "/" + _vd.getDate() + "（" + dayNames[(_vd.getDay() + 6) % 7] + "）"; }
+  var dismissKanjiTest = function (dt) {
+    var target = (typeof dt === "string" && dt) ? dt : TD;
+    var d = clone(data);
+    if (!d.todayChecks) d.todayChecks = {};
+    if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
+    if (!d.todayChecks[ch.id][target]) d.todayChecks[ch.id][target] = {};
+    d.todayChecks[ch.id][target]["kanji_test"] = true;
+    d.todayChecks[ch.id][target]["kanji_test_skipped"] = true;
+    save(d);
+  };
   // 週プールのタスクを曜日べつに編集（名前・目安時間・曜日の変更）。今週・来週の両方で使う（2026-08-17）
   var startEdit = function (t, scope) {
     setEditId(t.id); setEditScope(scope);
@@ -1377,16 +1430,19 @@ function WeekPlanCard(p) {
     }
     return (<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}><Kid t={"この読みを漢字で書こう！"} ch={ch} data={data} on={!isP} /></div><div style={{ fontSize: 40, fontWeight: 900, color: ch.color, letterSpacing: 8 }}>{reading}</div></div>);
   };
-  var finishKanji = function () {
+  var finishKanji = function (dt) {
+    var target = (typeof dt === "string" && dt) ? dt : TD;
+    var already = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][target] && data.todayChecks[ch.id][target]["kanji_test"]);
+    var qn = (target === TD) ? kanjiActive.length : readKanjiQ(data, ch.id, target).length;
     var d = clone(data);
     if (!d.todayChecks) d.todayChecks = {};
     if (!d.todayChecks[ch.id]) d.todayChecks[ch.id] = {};
-    if (!d.todayChecks[ch.id][TD]) d.todayChecks[ch.id][TD] = {};
-    d.todayChecks[ch.id][TD]["kanji_test"] = true;
-    d.todayChecks[ch.id][TD]["label_kanji_test"] = "漢字テスト（" + kanjiActive.length + "問）";
-    giveKanjiTestPt(d, ch.id, TD); // 2026-09-29 テスト完了で即ポイント
+    if (!d.todayChecks[ch.id][target]) d.todayChecks[ch.id][target] = {};
+    d.todayChecks[ch.id][target]["kanji_test"] = true;
+    d.todayChecks[ch.id][target]["label_kanji_test"] = "漢字テスト（" + qn + "問）";
+    if (!already) giveKanjiTestPt(d, ch.id, target); // 完了で1ポイント（その日1回だけ）
     save(d);
-    setKanjiTestIdx(-1);
+    setKanjiTestIdx(-1); setKanjiTestDate(TD);
   };
   var finishKanjiNote = function (dt) {
     var target = (typeof dt === "string" && dt) ? dt : TD;
@@ -1503,26 +1559,26 @@ function WeekPlanCard(p) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f3f3f3" }}>
                 <span style={{ fontSize: 16 }}>🎯</span>
                 <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}><Kid t={"漢字テスト（" + kanjiActive.length + "問）"} ch={ch} data={data} on={!isP} /></div>
-                <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, TD); save(d); setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}><Kid t={"問題を見る ▶"} ch={ch} data={data} on={!isP} /></button>
+                <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, TD); save(d); setKanjiTestDate(TD); setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: ch.color, color: "#fff" }}><Kid t={"問題を見る ▶"} ch={ch} data={data} on={!isP} /></button>
               </div>
             )}
-            {kanjiDue && kanjiTestIdx >= 0 && (
+            {kanjiTestIdx >= 0 && viewQ.length > 0 && (
               <div style={{ background: "#F8F9FF", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <div style={{ fontSize: 11, color: "#aaa", fontWeight: 600 }}>{kanjiTestIdx + 1} / {kanjiActive.length} <Kid t={"問目"} ch={ch} data={data} on={!isP} /></div>
-                  <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#eee", color: "#999", fontSize: 11 }}><Kid t={"✕ 閉じる"} ch={ch} data={data} on={!isP} /></button>
+                  <div style={{ fontSize: 11, color: "#aaa", fontWeight: 600 }}>{viewDate !== TD ? <b style={{ color: ch.color }}>{viewLabel}　</b> : null}{kanjiTestIdx + 1} / {viewQ.length} <Kid t={"問目"} ch={ch} data={data} on={!isP} /></div>
+                  <button onClick={function () { setKanjiTestIdx(-1); setKanjiTestDate(TD); }} style={{ ...S.smBtn, background: "#eee", color: "#999", fontSize: 11 }}><Kid t={"✕ 閉じる"} ch={ch} data={data} on={!isP} /></button>
                 </div>
                 <div style={{ padding: "8px 4px 14px", minHeight: 100 }}>
                   <div style={{ textAlign: "center", fontSize: 26, fontWeight: 900, color: ch.color, marginBottom: 2 }}>{circledNum(kanjiTestIdx)}</div>
-                  {kanjiActive[kanjiTestIdx] ? rkq(kanjiActive[kanjiTestIdx]) : null}
+                  {viewQ[kanjiTestIdx] ? rkq(viewQ[kanjiTestIdx]) : null}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={function () { setKanjiTestIdx(Math.max(0, kanjiTestIdx - 1)); }} disabled={kanjiTestIdx <= 0} style={{ ...S.smBtn, background: "#eee", color: "#666", flex: 1, opacity: kanjiTestIdx <= 0 ? 0.4 : 1 }}><Kid t={"← 前の問題"} ch={ch} data={data} on={!isP} /></button>
-                  {kanjiTestIdx < kanjiActive.length - 1
+                  {kanjiTestIdx < viewQ.length - 1
                     ? <button onClick={function () { setKanjiTestIdx(kanjiTestIdx + 1); }} style={{ ...S.smBtn, background: ch.color, color: "#fff", flex: 1 }}><Kid t={"次の問題 →"} ch={ch} data={data} on={!isP} /></button>
-                    : (kanjiDone ? <button onClick={function () { setKanjiTestIdx(-1); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ とじる"} ch={ch} data={data} on={!isP} /></button> : <button onClick={finishKanji} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>)}
+                    : (viewDone ? <button onClick={function () { setKanjiTestIdx(-1); setKanjiTestDate(TD); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ とじる"} ch={ch} data={data} on={!isP} /></button> : <button onClick={function () { finishKanji(viewDate); }} style={{ ...S.smBtn, background: "#4CAF50", color: "#fff", flex: 1 }}><Kid t={"✓ 完了"} ch={ch} data={data} on={!isP} /></button>)}
                 </div>
-                {kanjiTestIdx === kanjiActive.length - 1 && !kanjiDone && <div style={{ textAlign: "center", fontSize: 11, color: "#888", marginTop: 6 }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>}
+                {kanjiTestIdx === viewQ.length - 1 && !viewDone && <div style={{ textAlign: "center", fontSize: 11, color: "#888", marginTop: 6 }}><Kid t={"📝 お母さんに「漢字」タブで採点してもらおう！"} ch={ch} data={data} on={!isP} /></div>}
               </div>
             )}
             {kanjiDone && kanjiTestIdx < 0 && (
@@ -1531,7 +1587,7 @@ function WeekPlanCard(p) {
                   <div style={{ width: 24, height: 24, borderRadius: 12, background: "#4CAF50", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>✓</div>
                   <div style={{ flex: 1, fontSize: 12, textDecoration: "line-through", opacity: .6, minWidth: 70 }}><Kid t={"漢字テスト"} ch={ch} data={data} on={!isP} /></div>
                   {kanjiGraded && kanjiResults && <span style={{ fontSize: 11, fontWeight: 800, color: "#4CAF50" }}>○{readKanjiQ(data, ch.id, TD).filter(function (k) { return kanjiResults[k.id]; }).length}/{readKanjiQ(data, ch.id, TD).length}</span>}
-                  <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, TD); save(d); setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", fontSize: 11 }}><Kid t={"問題をもう一度見る"} ch={ch} data={data} on={!isP} /></button>
+                  <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, TD); save(d); setKanjiTestDate(TD); setKanjiTestIdx(0); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#666", fontSize: 11 }}><Kid t={"問題をもう一度見る"} ch={ch} data={data} on={!isP} /></button>
                   {kanjiGraded && kanjiResults && <button onClick={function () { setKanjiResultOpen(!kanjiResultOpen); }} style={{ ...S.smBtn, background: kanjiResultOpen ? ch.color : "#E8F5E9", color: kanjiResultOpen ? "#fff" : "#2E7D32", fontSize: 11 }}><Kid t={"📊 採点結果"} ch={ch} data={data} on={!isP} /></button>}
                   {kanjiDone && !kanjiGraded && <span style={{ fontSize: 10, color: "#FF9800", fontWeight: 700 }}><Kid t={"採点まち"} ch={ch} data={data} on={!isP} /></span>}
                 </div>
@@ -1559,6 +1615,20 @@ function WeekPlanCard(p) {
                 )}
               </div>
             )}
+            {kanjiTestIdx < 0 && kanjiMissed.map(function (km) {
+              return (
+                <div key={km.ds} style={{ background: "#EEF3FF", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6, border: "1px dashed #90CAF9" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 16 }}>🎯</span>
+                    <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#1565C0" }}><Kid t={km.label + "の漢字テスト（" + km.count + "問）"} ch={ch} data={data} on={!isP} /></div>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#1565C0", background: "#E3F2FD", borderRadius: 8, padding: "2px 8px" }}>やり残し</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#999", margin: "6px 0 8px" }}><Kid t={"この日のテストを、いまからやってもOK！"} ch={ch} data={data} on={!isP} /></div>
+                  <button onClick={function () { var d = clone(data); freezeKanjiQ(d, ch.id, km.ds); save(d); setKanjiTestDate(km.ds); setKanjiTestIdx(0); }} style={{ ...S.subBtn, background: ch.color }}><Kid t={"🎯 この日のテストをやる ▶"} ch={ch} data={data} on={!isP} /></button>
+                  {isP && <button onClick={function () { dismissKanjiTest(km.ds); }} style={{ ...S.smBtn, background: "#f0f0f0", color: "#999", fontSize: 11, marginTop: 6 }} title="この日を消化せずに消す">🗑 この日を消す</button>}
+                </div>
+              );
+            })}
             {noteOn && (noteList.length > 0 || (isP && noteEdit)) && (!noteDone || isP) && (
               <div style={{ background: "#FFF8F0", borderRadius: 14, padding: 12, marginTop: 6, marginBottom: 6, border: "1px solid #FFE0B2" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
