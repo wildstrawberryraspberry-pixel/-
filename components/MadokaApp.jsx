@@ -5088,18 +5088,20 @@ function KanjiTab(p) {
   var todayDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   const [testState, setTestState] = useState(null);
   const [gradeDate, setGradeDate] = useState(function () {
-    var anyWeekday = null, candidate = null;
-    for (var dd = 0; dd < 7; dd++) {
+    var anyWeekday = null, candidate = null, pending = null;
+    for (var dd = 0; dd < 14; dd++) {
       var dt = new Date(NOW); dt.setDate(dt.getDate() - dd);
       var ds = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
       if (!isKanjiTestDay(ds)) continue; // 土日は漢字テストの対象外
       if (anyWeekday == null) anyWeekday = ds;
-      var graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds] && data.todayChecks[ch.id][ds]["kanji_graded"]);
+      var tc = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds]) || null;
+      var graded = !!(tc && tc["kanji_graded"]);
+      var done = !!(tc && tc["kanji_test"]);
       var hasQ = kanjiDailyQueue(effKanjiList(data, ch.id, ds), ds).length > 0;
-      if (candidate == null && (hasQ || graded)) candidate = ds;
-      if (!graded && hasQ) return ds; // 未採点で出題ありの直近平日を優先
+      if (pending == null && done && !graded) pending = ds; // 子が完了済み・未採点＝採点まちを最優先
+      if (candidate == null && (hasQ || graded || done)) candidate = ds;
     }
-    return candidate || anyWeekday || TD;
+    return pending || candidate || anyWeekday || TD;
   });
   const [editId, setEditId] = useState(null);
   const [editReading, setEditReading] = useState("");
@@ -5229,13 +5231,15 @@ function KanjiTab(p) {
   var testableCount = active.filter(function (k) { return k.reading && k.reading.trim(); }).length;
   // 採点できる日の候補（直近7日で、出題できる語があるか、すでに採点済みの日）
   var gradeDays = [];
-  for (var _gd = 0; _gd < 7; _gd++) {
+  for (var _gd = 0; _gd < 14; _gd++) { // 2026-10-14 子のやり残し(14日)に合わせて採点も14日ぶん
     var _dt = new Date(NOW); _dt.setDate(_dt.getDate() - _gd);
     var _ds = _dt.getFullYear() + "-" + String(_dt.getMonth() + 1).padStart(2, "0") + "-" + String(_dt.getDate()).padStart(2, "0");
     if (!isKanjiTestDay(_ds)) continue; // 土日は採点候補から除外
     var _q = kanjiDailyQueue(effKanjiList(data, ch.id, _ds), _ds);
-    var _graded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_ds] && data.todayChecks[ch.id][_ds]["kanji_graded"]);
-    if (_q.length > 0 || _graded) gradeDays.push({ date: _ds, label: _gd === 0 ? "今日" : _gd === 1 ? "きのう" : (_dt.getMonth() + 1) + "/" + _dt.getDate(), count: _q.length, graded: _graded });
+    var _tc = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_ds]) || null;
+    var _graded = !!(_tc && _tc["kanji_graded"]);
+    var _done = !!(_tc && _tc["kanji_test"]); // 子どもが完了済み
+    if (_q.length > 0 || _graded || _done) gradeDays.push({ date: _ds, label: _gd === 0 ? "今日" : _gd === 1 ? "きのう" : (_dt.getMonth() + 1) + "/" + _dt.getDate(), count: _q.length, graded: _graded, done: _done });
   }
   var selQueue = kanjiDailyQueue(effKanjiList(data, ch.id, gradeDate), gradeDate);
   var selCount = selQueue.length;
@@ -5412,7 +5416,10 @@ function KanjiTab(p) {
                   <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>採点する日（当日にできなくても、あとから採点できます）</div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {gradeDays.map(function (gdy) {
-                      return <button key={gdy.date} onClick={function () { setGradeDate(gdy.date); }} style={{ ...S.smBtn, background: gdy.date === gradeDate ? ch.color : "#f0f0f0", color: gdy.date === gradeDate ? "#fff" : "#666" }}>{gdy.label}{gdy.graded ? " ✓" : "（" + gdy.count + "）"}</button>;
+                      var _pend = gdy.done && !gdy.graded; // 子が完了・未採点＝採点まち
+                      var _bg = gdy.date === gradeDate ? ch.color : (_pend ? "#FFF3E0" : "#f0f0f0");
+                      var _col = gdy.date === gradeDate ? "#fff" : (_pend ? "#E65100" : "#666");
+                      return <button key={gdy.date} onClick={function () { setGradeDate(gdy.date); }} title={_pend ? "子どもが完了・採点まち" : (gdy.graded ? "採点ずみ" : "")} style={{ ...S.smBtn, background: _bg, color: _col, border: (_pend && gdy.date !== gradeDate) ? "1px solid #FFCC80" : undefined, fontWeight: _pend ? 800 : undefined }}>{gdy.label}{gdy.graded ? " ✓" : (_pend ? " ✏採点まち" : "（" + gdy.count + "）")}</button>;
                     })}
                   </div>
                 </div>
