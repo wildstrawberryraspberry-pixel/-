@@ -553,7 +553,9 @@ function srsSelect(d, chId, ch, date, roomLeft, exclude) {
       if (lanes.every(function (l) { return !l.length; })) break;
     }
   }
-  return chosen.map(function (x) { var words = (KANJI_CORPUS[x.grade] && KANJI_CORPUS[x.grade][x.char]) || []; var w = srsPick(words, date + ":" + x.char + ":" + (x.s.seen || 0)) || { word: x.char, reading: "", type: "" }; return { id: "srs:" + chId + ":" + x.char + ":" + date, kanji: w.word, reading: w.reading || "", sentence: w.example || "", srs: true, srsChar: x.char, srsType: w.type || "", srsGrade: x.grade }; });
+  // 2026-10-14 出題語は「相手の漢字も既習」を優先（pickWordForChar）。未習の相手字（例：古→古代の代）を書かせないため。全部既習の熟語が無ければ 送り仮名つき→単字 にフォールバック。
+  var _known = knownKanjiSet(d, chId, ch);
+  return chosen.map(function (x) { var w = pickWordForChar(ch, x.char, date + ":" + (x.s.seen || 0), _known); return { id: "srs:" + chId + ":" + x.char + ":" + date, kanji: w.word || x.char, reading: w.reading || "", sentence: w.sentence || "", srs: true, srsChar: x.char, srsType: "", srsGrade: x.grade }; });
 }
 function srsApply(d, chId, srsChar, correct, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][srsChar] || { box: 0, taught: true, focus: true, seen: 0, wrong: 0 }; s.seen = (s.seen || 0) + 1; if (correct) { s.box = Math.min(SRS_MASTER_BOX, (s.box || 0) + 1); if (s.box >= SRS_MASTER_BOX) s.focus = false; } else { s.box = 1; s.wrong = (s.wrong || 0) + 1; } s.due = srsAddDays(date, SRS_INTERVALS[Math.min(s.box, SRS_INTERVALS.length - 1)]); d.kanjiSRS[chId][srsChar] = s; return d; }
 function srsGraduate(d, chId, char, date) { if (!isKanjiC(char)) return d; if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][char] || { box: 0, seen: 0, wrong: 0 }; s.taught = true; s.focus = false; s.box = 2; s.seen = Math.max(1, s.seen || 0); s.due = srsAddDays(date, SRS_INTERVALS[2]); d.kanjiSRS[chId][char] = s; return d; }
