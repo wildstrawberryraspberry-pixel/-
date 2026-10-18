@@ -525,6 +525,8 @@ function srsSelect(d, chId, ch, date, roomLeft, exclude) {
   var chosen = []; var i;
   // ① 今の単元（集中）＝最優先：due・newPerDay無視、定着(box5)未満のみ、毎日いちばん上に出す
   var focusT = collect(curGrade, true, false, true).filter(function (x) { return x.s.focus && (x.s.box || 0) < SRS_MASTER_BOX; }).sort(sortTier);
+  // 2026-10-18 集中が多い日も日替わりで範囲を巡回（capぶんずつブロック回転）
+  if (focusT.length > 1) { var _flen = focusT.length; var _foff = ((dayIndexOf(date) * Math.max(1, cap)) % _flen + _flen) % _flen; focusT = focusT.slice(_foff).concat(focusT.slice(0, _foff)); }
   for (i = 0; i < focusT.length && chosen.length < cap; i++) chosen.push(focusT[i]);
   var picked = {}; chosen.forEach(function (x) { picked[x.char] = 1; });
   var current = collect(curGrade, true).filter(function (x) { return !picked[x.char]; });
@@ -555,7 +557,7 @@ function srsSelect(d, chId, ch, date, roomLeft, exclude) {
   }
   // 2026-10-14 出題語は「相手の漢字も既習」を優先（pickWordForChar）。未習の相手字（例：古→古代の代）を書かせないため。全部既習の熟語が無ければ 送り仮名つき→単字 にフォールバック。
   var _known = knownKanjiSet(d, chId, ch);
-  return chosen.map(function (x) { var w = pickWordForChar(ch, x.char, date + ":" + (x.s.seen || 0), _known); return { id: "srs:" + chId + ":" + x.char + ":" + date, kanji: w.word || x.char, reading: w.reading || "", sentence: w.sentence || "", srs: true, srsChar: x.char, srsType: "", srsGrade: x.grade }; });
+  return chosen.map(function (x) { var w = pickWordForChar(ch, x.char, date + ":" + (x.s.seen || 0), _known); return { id: "srs:" + chId + ":" + x.char + ":" + date, kanji: w.word || x.char, reading: w.reading || "", sentence: w.sentence || "", srs: true, srsChar: x.char, srsType: "", srsGrade: x.grade, srsFocus: !!x.s.focus }; });
 }
 function srsApply(d, chId, srsChar, correct, date) { if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][srsChar] || { box: 0, taught: true, focus: true, seen: 0, wrong: 0 }; s.seen = (s.seen || 0) + 1; if (correct) { s.box = Math.min(SRS_MASTER_BOX, (s.box || 0) + 1); if (s.box >= SRS_MASTER_BOX) s.focus = false; } else { s.box = 1; s.wrong = (s.wrong || 0) + 1; } s.due = srsAddDays(date, SRS_INTERVALS[Math.min(s.box, SRS_INTERVALS.length - 1)]); d.kanjiSRS[chId][srsChar] = s; return d; }
 function srsGraduate(d, chId, char, date) { if (!isKanjiC(char)) return d; if (!d.kanjiSRS) d.kanjiSRS = {}; if (!d.kanjiSRS[chId]) d.kanjiSRS[chId] = {}; var s = d.kanjiSRS[chId][char] || { box: 0, seen: 0, wrong: 0 }; s.taught = true; s.focus = false; s.box = 2; s.seen = Math.max(1, s.seen || 0); s.due = srsAddDays(date, SRS_INTERVALS[2]); d.kanjiSRS[chId][char] = s; return d; }
@@ -567,11 +569,12 @@ function kanjiListDueCount(d, chId, date) { var list = (d.kanjiList && d.kanjiLi
 //  旧形式（tokens を持つ／id に "|" を含む）がキャッシュに残っていれば作り直す（自己修復）。
 function srsDayItems(d, chId, ch, date) {
   var st = srsSettings(d, chId);
-  var room = Math.max(0, st.dailyCap - kanjiListDueCount(d, chId, date));
+  // 2026-10-18 SRSは dailyCap 全量ぶん用意（集中を苦手に奪われないように。最終構成は composeKanjiTest が決める）
+  var room = Math.max(1, st.dailyCap);
   var arr = srsSelect(d, chId, ch, date, room, activeKanjiListSet(d, chId));
-  return arr.map(function (it) { return { id: it.id, srs: true, srsChar: it.srsChar, kanji: it.kanji, reading: it.reading, sentence: it.sentence || "", srsType: it.srsType || "", srsGrade: it.srsGrade }; });
+  return arr.map(function (it) { return { id: it.id, srs: true, srsChar: it.srsChar, kanji: it.kanji, reading: it.reading, sentence: it.sentence || "", srsType: it.srsType || "", srsGrade: it.srsGrade, srsFocus: !!it.srsFocus }; });
 }
-function srsDayStale(cached) { return Array.isArray(cached) && cached.some(function (it) { return it && (it.tokens || (typeof it.id === "string" && it.id.indexOf("|") >= 0)); }); }
+function srsDayStale(cached) { return Array.isArray(cached) && cached.some(function (it) { return it && (it.tokens || (typeof it.id === "string" && it.id.indexOf("|") >= 0) || (it.srs && typeof it.srsFocus === "undefined")); }); }
 function ensureSrsDay(d, chId, date) {
   var ch = childById(chId); if (!ch) return [];
   if (!d.kanjiSrsDay) d.kanjiSrsDay = {}; if (!d.kanjiSrsDay[chId]) d.kanjiSrsDay[chId] = {};
@@ -582,6 +585,22 @@ function ensureSrsDay(d, chId, date) {
 }
 function srsDayPreview(data, chId, date) { var ch = childById(chId); if (!ch) return []; var cached = data.kanjiSrsDay && data.kanjiSrsDay[chId] && data.kanjiSrsDay[chId][date]; if (cached && !srsDayStale(cached)) return cached; return srsDayItems(data, chId, ch, date); }
 function effKanjiList(data, chId, date) { var base = (data.kanjiList && data.kanjiList[chId]) || []; var srs = srsDayPreview(data, chId, date); return base.concat(srs || []); }
+// 2026-10-18 その日の漢字テスト構成：集中(focus)があれば「集中メイン＋少し復習(苦手→既習)」、無ければ従来（苦手＋既習）。cap(=1日の問題数)で頭打ち。
+function composeKanjiTest(data, chId, date) {
+  var st = srsSettings(data, chId);
+  var cap = Math.max(1, st.dailyCap || 10);
+  var srs = srsDayPreview(data, chId, date) || [];
+  var focusItems = srs.filter(function (x) { return x.srsFocus; });
+  var srsReview = srs.filter(function (x) { return !x.srsFocus; });
+  var mistaken = kanjiDailyQueue((data.kanjiList && data.kanjiList[chId]) || [], date);
+  if (focusItems.length > 0) {
+    var review = mistaken.concat(srsReview); // 復習は 苦手(間違えた漢字) を先に、その後 既習SRS
+    var reserve = Math.min(review.length, Math.max(1, Math.round(cap * 0.2))); // 約2割を復習（復習が無ければ0）
+    var fTake = Math.min(focusItems.length, cap - reserve);
+    return focusItems.slice(0, fTake).concat(review.slice(0, cap - fTake)).slice(0, cap);
+  }
+  return mistaken.concat(srsReview).slice(0, cap);
+}
 // ===== 苦手漢字ノート（2026-09-07）: 何度も間違えた字を毎日ノートに一行書く練習。テストとは別。=====
 function pickWordForChar(ch, char, seed, known) {
   var grades = [srsCurGrade(ch)].concat(srsPriorGrades(ch));
@@ -657,7 +676,8 @@ function kanjiWeakList(data, chId, date, n) {
   var weakRest = weak.filter(function (x) { return (x.wrong || 0) < 1; }).sort(function (a, b) { if ((a.box || 0) !== (b.box || 0)) return (a.box || 0) - (b.box || 0); return bySortKey(a, b); });
   // 枠配分：focus を中心（多め）に、残りを 苦手(wrong) と そのほか に。プールが空なら他へ回す。
   var fq = 0, wq = 0;
-  if (focusPool.length) fq = Math.min(focusPool.length, Math.ceil(n / 2));
+  // 2026-10-18 集中メイン：集中を多め、残り少し(約3割)を苦手/既習に
+  if (focusPool.length) { var _res = Math.min(weak.length, Math.max(1, Math.round(n * 0.3))); fq = Math.min(focusPool.length, Math.max(0, n - _res)); }
   wq = n - fq;
   var totalWeak = weakWrong.length + weakRest.length;
   if (wq > totalWeak) { wq = totalWeak; fq = Math.min(focusPool.length, n - wq); }
@@ -721,13 +741,11 @@ function renderKanjiSentence(tokens, ch, focusNo, showAnswer){
 function freezeKanjiQ(d, chId, date) {
   if (!d.kanjiTestFrozen) d.kanjiTestFrozen = {};
   if (!d.kanjiTestFrozen[chId]) d.kanjiTestFrozen[chId] = {};
-  var _srsQ = ensureSrsDay(d, chId, date);
+  ensureSrsDay(d, chId, date); // 集中タグ付きで再生成・保存
   var _cur = d.kanjiTestFrozen[chId][date];
   var _staleFrozen = Array.isArray(_cur) && _cur.some(function (id) { return typeof id === "string" && id.indexOf("|") >= 0; }); // 旧展開id → 作り直す
   if (!_cur || !_cur.length || _staleFrozen) {
-    var listQ = kanjiDailyQueue((d.kanjiList && d.kanjiList[chId]) || [], date);
-    var q = listQ.concat(_srsQ || []);
-    d.kanjiTestFrozen[chId][date] = q.map(function (k) { return k.id; });
+    d.kanjiTestFrozen[chId][date] = composeKanjiTest(d, chId, date).map(function (k) { return k.id; });
   }
   return d.kanjiTestFrozen[chId][date];
 }
@@ -741,9 +759,8 @@ function readKanjiQ(data, chId, date) {
     list.forEach(function (k) { byId[k.id] = k; });
     return ids.map(function (id) { return byId[id]; }).filter(function (k) { return k; });
   }
-  // 凍結が無い/古いときは freeze と同じ構成（間違えた漢字リスト＋SRS）で組み直す
-  var listQ = kanjiDailyQueue((data.kanjiList && data.kanjiList[chId]) || [], date);
-  return listQ.concat(srsDayPreview(data, chId, date) || []);
+  // 凍結が無い/古いときは freeze と同じ構成（集中メイン＋少し復習）で組み直す
+  return composeKanjiTest(data, chId, date);
 }
 // ===== 2026-06-06 ふりがな（学年別漢字表示）機能 =====
 // 学年別漢字配当表（教育漢字 小1-6、出典: みんなの知識 ちょっと便利帳 / 学習指導要領 学年別漢字配当表）。
