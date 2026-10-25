@@ -1331,6 +1331,7 @@ function WeekPlanCard(p) {
   var kanjiGraded = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_graded"]);
   var _noteSt = srsSettings(data, ch.id);
   var noteOn = (ch.id === "eishi" || ch.id === "yuzuki") && _noteSt.noteOn !== false && !todayRest && isKanjiTestDay(TD); // 2026-09-20 土日はノートを出さない（平日のみ）
+  var noteFeatureOn = (ch.id === "eishi" || ch.id === "yuzuki") && _noteSt.noteOn !== false; // 2026-10-25 やり残し（過去分）は土日・お休みでも拾って出す（今日ぶんの新規ノートはnoteOnで平日のみのまま）
   var _noteCustAll = (data.kanjiNoteCustom && data.kanjiNoteCustom[ch.id]) || null;
   if (Array.isArray(_noteCustAll)) _noteCustAll = null;
   var noteCustom = (_noteCustAll && _noteCustAll[TD]) || null;
@@ -1343,7 +1344,7 @@ function WeekPlanCard(p) {
   // 2026-09-20 さかのぼり：やり残した平日のにがて漢字ノートを拾う
   var noteListForDate = function (ds) { var cu = _noteCustAll && _noteCustAll[ds]; return (cu && cu.length) ? cu.slice() : kanjiWeakList(data, ch.id, ds, _noteSt.notePerDay == null ? 7 : _noteSt.notePerDay); };
   var noteMissed = [];
-  if (noteOn) {
+  if (noteFeatureOn) {
     for (var _mi = 14; _mi >= 1; _mi--) {
       var _mdt = new Date(NOW); _mdt.setDate(_mdt.getDate() - _mi);
       var _mds = _mdt.getFullYear() + "-" + String(_mdt.getMonth() + 1).padStart(2, "0") + "-" + String(_mdt.getDate()).padStart(2, "0");
