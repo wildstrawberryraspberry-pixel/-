@@ -524,9 +524,11 @@ function srsSelect(d, chId, ch, date, roomLeft, exclude) {
   function sortTier(a, b) { if ((!!b.s.focus) - (!!a.s.focus)) return (!!b.s.focus) - (!!a.s.focus); if ((b.s.wrong || 0) !== (a.s.wrong || 0)) return (b.s.wrong || 0) - (a.s.wrong || 0); if ((a.s.box || 0) !== (b.s.box || 0)) return (a.s.box || 0) - (b.s.box || 0); return (a.s.due || "").localeCompare(b.s.due || ""); }
   var chosen = []; var i;
   // ① 今の単元（集中）＝最優先：due・newPerDay無視、定着(box5)未満のみ、毎日いちばん上に出す
-  var focusT = collect(curGrade, true, false, true).filter(function (x) { return x.s.focus && (x.s.box || 0) < SRS_MASTER_BOX; }).sort(sortTier);
-  // 2026-10-18 集中が多い日も日替わりで範囲を巡回（capぶんずつブロック回転）
-  if (focusT.length > 1) { var _flen = focusT.length; var _foff = ((dayIndexOf(date) * Math.max(1, cap)) % _flen + _flen) % _flen; focusT = focusT.slice(_foff).concat(focusT.slice(0, _foff)); }
+  var focusAll = collect(curGrade, true, false, true).filter(function (x) { return x.s.focus && (x.s.box || 0) < SRS_MASTER_BOX; }).sort(sortTier);
+  // 2026-10-26 正解が続いている集中字（連続正解≥2で次の復習日がまだ先）は一旦お休み＝後ろへ。新出/間違え/復習日が来た集中字を先に出し、毎日いろんな字が出るように。
+  var _srsRest = function (x) { return (x.s.box || 0) >= 2 && x.s.due && x.s.due > date; };
+  var _blockRot = function (a) { if (a.length > 1) { var _l = a.length; var _o = ((dayIndexOf(date) * Math.max(1, cap)) % _l + _l) % _l; return a.slice(_o).concat(a.slice(0, _o)); } return a; };
+  var focusT = _blockRot(focusAll.filter(function (x) { return !_srsRest(x); })).concat(_blockRot(focusAll.filter(_srsRest)));
   for (i = 0; i < focusT.length && chosen.length < cap; i++) chosen.push(focusT[i]);
   var picked = {}; chosen.forEach(function (x) { picked[x.char] = 1; });
   var current = collect(curGrade, true).filter(function (x) { return !picked[x.char]; });
@@ -542,18 +544,27 @@ function srsSelect(d, chId, ch, date, roomLeft, exclude) {
   if (chosen.length < cap) {
     picked = {}; chosen.forEach(function (x) { picked[x.char] = 1; });
     var day = dayIndexOf(date);
-    var lanes = srsTestGrades(ch).map(function (g) {
-      var arr = collect(g, g === curGrade, true, true).filter(function (x) { return !picked[x.char]; });
-      if (arr.length > 1) { var off = ((day % arr.length) + arr.length) % arr.length; arr = arr.slice(off).concat(arr.slice(0, off)); }
-      return arr;
-    });
-    var li = 0, guard = 0, maxGuard = cap * (lanes.length + 1) + 50;
-    while (chosen.length < cap && guard < maxGuard) {
-      guard++;
-      var lane = lanes[li % lanes.length]; li++;
-      if (lane && lane.length) { var x = lane.shift(); if (x && !picked[x.char]) { chosen.push(x); picked[x.char] = 1; } }
-      if (lanes.every(function (l) { return !l.length; })) break;
-    }
+    var _laneFor = function (keep) {
+      return srsTestGrades(ch).map(function (g) {
+        var arr = collect(g, g === curGrade, true, true).filter(function (x) { return !picked[x.char] && keep(x); });
+        if (arr.length > 1) { var off = ((day % arr.length) + arr.length) % arr.length; arr = arr.slice(off).concat(arr.slice(0, off)); }
+        return arr;
+      });
+    };
+    var _drain = function (lanes) {
+      var li = 0, guard = 0, maxGuard = cap * (lanes.length + 1) + 50;
+      while (chosen.length < cap && guard < maxGuard) {
+        guard++;
+        var lane = lanes[li % lanes.length]; li++;
+        if (lane && lane.length) { var x = lane.shift(); if (x && !picked[x.char]) { chosen.push(x); picked[x.char] = 1; } }
+        if (lanes.every(function (l) { return !l.length; })) break;
+      }
+    };
+    // 2026-10-26 まず「まだ身についていない字」＝新出 or 復習日が来た字 を優先（いろんな字を勉強）。正解が続いて今はお休み中（次の復習日がまだ先）の字は後回し。
+    var _notDue = function (x) { return !!(x.s && x.s.due && x.s.due > date); };
+    _drain(_laneFor(function (x) { return !_notDue(x); }));
+    // 足りなければお休み中の字も出す（忘れないように・二度と出さないではない）
+    if (chosen.length < cap) _drain(_laneFor(function () { return true; }));
   }
   // 2026-10-14 出題語は「相手の漢字も既習」を優先（pickWordForChar）。未習の相手字（例：古→古代の代）を書かせないため。全部既習の熟語が無ければ 送り仮名つき→単字 にフォールバック。
   var _known = knownKanjiSet(d, chId, ch);
@@ -665,37 +676,31 @@ function kanjiWeakList(data, chId, date, n) {
   Object.keys(srs).forEach(function (c) {
     var st = srs[c]; if (!st || !st.taught || !isKanjiC(c) || seen[c]) return;
     var box = st.box || 0; if (box >= SRS_MASTER_BOX) return; seen[c] = 1;
-    if (st.focus) focusPool.push({ key: c, box: box, wrong: (st.wrong || 0) });
-    else weak.push({ key: c, box: box, wrong: (st.wrong || 0) });
+    var rec = { key: c, box: box, wrong: (st.wrong || 0), due: st.due || "" };
+    if (st.focus) focusPool.push(rec); else weak.push(rec);
   });
-  // 間違えた漢字リスト（未定着）は weak に（単語のまま／字のまま。既存挙動を踏襲）
-  list.forEach(function (k) { if (!k || k.completed || !isKanjiC(k.kanji) || seen[k.kanji]) return; seen[k.kanji] = 1; weak.push({ key: k.kanji, box: 0, wrong: (k.wrong || 0) }); });
-  focusPool.sort(function (a, b) { if (a.box !== b.box) return a.box - b.box; return bySortKey(a, b); });
-  // weak を「テストで間違えた字(wrong≥1)」と「そのほか」に分け、それぞれ字順で安定化
-  var weakWrong = weak.filter(function (x) { return (x.wrong || 0) >= 1; }).sort(function (a, b) { if ((b.wrong || 0) !== (a.wrong || 0)) return (b.wrong || 0) - (a.wrong || 0); return bySortKey(a, b); });
-  var weakRest = weak.filter(function (x) { return (x.wrong || 0) < 1; }).sort(function (a, b) { if ((a.box || 0) !== (b.box || 0)) return (a.box || 0) - (b.box || 0); return bySortKey(a, b); });
-  // 枠配分：focus を中心（多め）に、残りを 苦手(wrong) と そのほか に。プールが空なら他へ回す。
-  var fq = 0, wq = 0;
-  // 2026-10-18 集中メイン：集中を多め、残り少し(約3割)を苦手/既習に
-  if (focusPool.length) { var _res = Math.min(weak.length, Math.max(1, Math.round(n * 0.3))); fq = Math.min(focusPool.length, Math.max(0, n - _res)); }
-  wq = n - fq;
-  var totalWeak = weakWrong.length + weakRest.length;
-  if (wq > totalWeak) { wq = totalWeak; fq = Math.min(focusPool.length, n - wq); }
-  if (!focusPool.length) { fq = 0; wq = Math.min(n, totalWeak); }
-  // 苦手(wrong)に半分、そのほかに半分（片方が少なければもう片方へ）
-  var wwq = Math.min(weakWrong.length, Math.ceil(wq / 2));
-  var wrq = Math.min(weakRest.length, wq - wwq);
-  wwq = Math.min(weakWrong.length, wq - wrq);
+  // 間違えた漢字リスト（未定着）は weak に（単語のまま／字のまま）
+  list.forEach(function (k) { if (!k || k.completed || !isKanjiC(k.kanji) || seen[k.kanji]) return; seen[k.kanji] = 1; weak.push({ key: k.kanji, box: 0, wrong: (k.wrong || 0), due: "" }); });
   var day = dayIndexOf(date);
-  var sel = kanjiRotWindow(focusPool, fq, day)
-    .concat(kanjiRotWindow(weakWrong, wwq, day))
-    .concat(kanjiRotWindow(weakRest, wrq, day));
-  // 端数（プール不足で n に満たない）ぶんは、まだ入っていない字で日替わりに埋める
-  if (sel.length < n) {
-    var picked = {}; sel.forEach(function (x) { picked[x.key] = 1; });
-    var restAll = focusPool.concat(weakWrong).concat(weakRest).filter(function (x) { return !picked[x.key]; });
-    sel = sel.concat(kanjiRotWindow(restAll, n - sel.length, day));
-  }
+  // 2026-10-26 正解が続いている字（連続正解≥2で次の復習日がまだ先）は一旦お休み。埋まらなければ最後に出す（忘れないように）。
+  var resting = function (x) { return (x.box || 0) >= 2 && x.due && x.due > date; };
+  focusPool.sort(function (a, b) { if (a.box !== b.box) return a.box - b.box; return bySortKey(a, b); });
+  // 間違えた字(wrong≥1)を最優先。残りは「お休みでない字（新しめ/復習日が来た字＝いろんな字）」→「お休み中」。
+  var weakWrong = weak.filter(function (x) { return (x.wrong || 0) >= 1; }).sort(function (a, b) { if ((b.wrong || 0) !== (a.wrong || 0)) return (b.wrong || 0) - (a.wrong || 0); return bySortKey(a, b); });
+  var weakRest = weak.filter(function (x) { return (x.wrong || 0) < 1; });
+  var restActive = weakRest.filter(function (x) { return !resting(x); }).sort(function (a, b) { if ((a.box || 0) !== (b.box || 0)) return (a.box || 0) - (b.box || 0); return bySortKey(a, b); });
+  var restSleep = weakRest.filter(resting).sort(bySortKey);
+  var focusActive = focusPool.filter(function (x) { return !resting(x); });
+  var focusSleep = focusPool.filter(resting);
+  var rotAll = function (a) { return kanjiRotWindow(a, a.length, day); };
+  var mRot = rotAll(weakWrong), fRot = rotAll(focusActive), aRot = rotAll(restActive);
+  var sleepRot = rotAll(focusSleep).concat(rotAll(restSleep));
+  // 優先順：①間違えた字（優先。ただし他の字もあるなら約6割まで＝変化も残す）②今の単元(集中)③お休みでない復習字（いろんな字）④残りの間違え⑤お休み中（焼き直し）
+  var hasOther = (fRot.length + aRot.length) > 0;
+  var mCap = hasOther ? Math.max(1, Math.round(n * 0.6)) : n;
+  var order = mRot.slice(0, mCap).concat(fRot).concat(aRot).concat(mRot.slice(mCap)).concat(sleepRot);
+  var pickedK = {}, sel = [];
+  order.forEach(function (x) { if (sel.length < n && !pickedK[x.key]) { pickedK[x.key] = 1; sel.push(x); } });
   var arr = sel.slice(0, n).map(function (x) { return { kanji: x.key, score: 0 }; });
   var known = knownKanjiSet(data, chId, ch);
   arr.forEach(function (it) { var w = pickWordForChar(ch, it.kanji, date, known); it.word = w.word; it.reading = w.reading; it.sentence = w.sentence; });
