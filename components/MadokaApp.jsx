@@ -527,19 +527,22 @@ function srsSelect(d, chId, ch, date, roomLeft, exclude) {
   var focusAll = collect(curGrade, true, false, true).filter(function (x) { return x.s.focus && (x.s.box || 0) < SRS_MASTER_BOX; }).sort(sortTier);
   // 2026-10-26 正解が続いている集中字（連続正解≥2で次の復習日がまだ先）は一旦お休み＝後ろへ。新出/間違え/復習日が来た集中字を先に出し、毎日いろんな字が出るように。
   var _srsRest = function (x) { return (x.s.box || 0) >= 2 && x.s.due && x.s.due > date; };
-  var _blockRot = function (a) { if (a.length > 1) { var _l = a.length; var _o = ((dayIndexOf(date) * Math.max(1, cap)) % _l + _l) % _l; return a.slice(_o).concat(a.slice(0, _o)); } return a; };
+  var _focusMax = Math.max(1, Math.ceil(cap / 2)); // 2026-10-31 集中は毎日「半分」まで。残り枠を復習・新出にまわして毎日ちがう問題に（集中字が多くても日替わりで入れ替わる）。
+  var _blockRot = function (a) { if (a.length > 1) { var _l = a.length; var _o = ((dayIndexOf(date) * Math.max(1, _focusMax)) % _l + _l) % _l; return a.slice(_o).concat(a.slice(0, _o)); } return a; };
   var focusT = _blockRot(focusAll.filter(function (x) { return !_srsRest(x); })).concat(_blockRot(focusAll.filter(_srsRest)));
-  for (i = 0; i < focusT.length && chosen.length < cap; i++) chosen.push(focusT[i]);
+  var _fc = 0;
+  for (i = 0; i < focusT.length && chosen.length < cap && _fc < _focusMax; i++) { chosen.push(focusT[i]); _fc++; }
   var picked = {}; chosen.forEach(function (x) { picked[x.char] = 1; });
   var current = collect(curGrade, true).filter(function (x) { return !picked[x.char]; });
   var curReview = current.filter(function (x) { return (x.s.seen || 0) > 0; }).sort(sortTier);
   var curNew = current.filter(function (x) { return (x.s.seen || 0) === 0; }).sort(sortTier);
-  for (i = 0; i < curReview.length && chosen.length < cap; i++) chosen.push(curReview[i]);
+  var _crWin = kanjiRotWindow(curReview, Math.max(0, cap - chosen.length), dayIndexOf(date)); // 2026-10-31 現学年の復習も日替わりで巡回（毎日ちがう字）
+  for (i = 0; i < _crWin.length && chosen.length < cap; i++) chosen.push(_crWin[i]);
   var newCount = 0; for (i = 0; i < curNew.length && chosen.length < cap && newCount < st.newPerDay; i++) { chosen.push(curNew[i]); newCount++; }
   var heldBack = curNew.length > newCount;
   // 既習の復習＝現学年以外のテスト対象学年（優珠綺＝1・3・4年、叡志＝1〜4年）。未マークでも復習として拾う（allowUntaught）。
   var reviewGrades = srsTestGrades(ch).filter(function (g) { return g !== curGrade; });
-  if (st.mixPrior && chosen.length < cap && !heldBack) { var prior = []; reviewGrades.forEach(function (g) { prior = prior.concat(collect(g, false, true)); }); var pReview = prior.filter(function (x) { return (x.s.seen || 0) > 0; }).sort(sortTier); var pNew = prior.filter(function (x) { return (x.s.seen || 0) === 0; }).sort(sortTier); for (i = 0; i < pReview.length && chosen.length < cap; i++) chosen.push(pReview[i]); var pBud = Math.max(0, st.newPerDay - newCount); for (i = 0; i < pNew.length && chosen.length < cap && pBud > 0; i++) { chosen.push(pNew[i]); pBud--; } }
+  if (st.mixPrior && chosen.length < cap && !heldBack) { var prior = []; reviewGrades.forEach(function (g) { prior = prior.concat(collect(g, false, true)); }); var pReview = prior.filter(function (x) { return (x.s.seen || 0) > 0; }).sort(sortTier); var pNew = prior.filter(function (x) { return (x.s.seen || 0) === 0; }).sort(sortTier); var _prWin = kanjiRotWindow(pReview, Math.max(0, cap - chosen.length), dayIndexOf(date)); for (i = 0; i < _prWin.length && chosen.length < cap; i++) chosen.push(_prWin[i]); var pBud = Math.max(0, st.newPerDay - newCount); for (i = 0; i < pNew.length && chosen.length < cap && pBud > 0; i++) { chosen.push(pNew[i]); pBud--; } }
   // 2026-10-14 ②③ 苦手・集中が少なくても必ず cap(=10)問に。テスト対象学年を学年ごとに日替わり回転させ、学年を順番に巡回して埋める（既習の確認＋3・4年の先取りが毎日まんべんなく出る）。
   if (chosen.length < cap) {
     picked = {}; chosen.forEach(function (x) { picked[x.char] = 1; });
@@ -5135,7 +5138,8 @@ function KanjiTab(p) {
   const [gradeDate, setGradeDate] = useState(function () {
     var _tcMap = (data.todayChecks && data.todayChecks[ch.id]) || {};
     // 2026-10-31 採点待ち（子が完了・未採点）は何日前でも最優先。最も古い日から採点できるように。
-    var _pend = Object.keys(_tcMap).filter(function (ds) { var t = _tcMap[ds]; return t && t["kanji_test"] && !t["kanji_graded"] && isKanjiTestDay(ds); }).sort();
+    var _cut = (function () { var _c = new Date(NOW); _c.setDate(_c.getDate() - 31); return _c.getFullYear() + "-" + String(_c.getMonth() + 1).padStart(2, "0") + "-" + String(_c.getDate()).padStart(2, "0"); })();
+    var _pend = Object.keys(_tcMap).filter(function (ds) { var t = _tcMap[ds]; return t && t["kanji_test"] && !t["kanji_graded"] && isKanjiTestDay(ds) && ds >= _cut; }).sort();
     if (_pend.length) return _pend[0];
     var anyWeekday = null, candidate = null;
     for (var dd = 0; dd < 14; dd++) {
@@ -5296,7 +5300,8 @@ function KanjiTab(p) {
     if (_q.length > 0 || _graded || _done) { _seenGd[ds] = 1; gradeDays.push({ date: ds, label: _mkGdLabel(ds), count: _q.length, graded: _graded, done: _done }); }
   };
   var _tcMap = (data.todayChecks && data.todayChecks[ch.id]) || {};
-  Object.keys(_tcMap).forEach(function (ds) { var t = _tcMap[ds]; if (t && t["kanji_test"] && !t["kanji_graded"]) _addGd(ds); }); // 採点待ちは全部
+  var _gdCut = (function () { var _c = new Date(NOW); _c.setDate(_c.getDate() - 31); return _c.getFullYear() + "-" + String(_c.getMonth() + 1).padStart(2, "0") + "-" + String(_c.getDate()).padStart(2, "0"); })(); // 2026-10-31 採点待ちは直近31日まで（何か月も前の未採点は出さない）
+  Object.keys(_tcMap).forEach(function (ds) { var t = _tcMap[ds]; if (t && t["kanji_test"] && !t["kanji_graded"] && ds >= _gdCut) _addGd(ds); }); // 採点待ち（直近31日）
   for (var _gd = 0; _gd < 14; _gd++) { var _dt = new Date(NOW); _dt.setDate(_dt.getDate() - _gd); _addGd(_dt.getFullYear() + "-" + String(_dt.getMonth() + 1).padStart(2, "0") + "-" + String(_dt.getDate()).padStart(2, "0")); }
   gradeDays.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
   var selQueue = readKanjiQ(data, ch.id, gradeDate); // 2026-10-31 間違えた漢字リストだけでなく実際の出題（SRS＝集中・既習含む）で採点可否を判定
