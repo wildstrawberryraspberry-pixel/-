@@ -664,7 +664,7 @@ function dayIndexOf(ds) { var p = String(ds || "").split("-"); if (p.length < 3)
 //   ・そのほかの苦手・復習字＝残り枠で巡回
 //  window(arr,k,day): 配列を day ごとに k 字ぶんずらして取り出す（決定的・端末非依存）。
 function kanjiRotWindow(arr, k, day) { if (k <= 0 || !arr.length) return []; if (arr.length <= k) return arr.slice(0, k); var off = ((day * k) % arr.length + arr.length) % arr.length; var out = []; for (var i = 0; i < k; i++) out.push(arr[(off + i) % arr.length]); return out; }
-function kanjiWeakList(data, chId, date, n) {
+function kanjiWeakSelect(data, chId, date, n) {
   var ch = childById(chId); if (!ch) return [];
   n = Math.max(0, n || 0); if (!n) return [];
   var srs = (data.kanjiSRS && data.kanjiSRS[chId]) || {};
@@ -692,19 +692,38 @@ function kanjiWeakList(data, chId, date, n) {
   var restSleep = weakRest.filter(resting).sort(bySortKey);
   var focusActive = focusPool.filter(function (x) { return !resting(x); });
   var focusSleep = focusPool.filter(resting);
-  var rotAll = function (a) { return kanjiRotWindow(a, a.length, day); };
-  var mRot = rotAll(weakWrong), fRot = rotAll(focusActive), aRot = rotAll(restActive);
-  var sleepRot = rotAll(focusSleep).concat(rotAll(restSleep));
-  // 優先順：①間違えた字（優先。ただし他の字もあるなら約6割まで＝変化も残す）②今の単元(集中)③お休みでない復習字（いろんな字）④残りの間違え⑤お休み中（焼き直し）
-  var hasOther = (fRot.length + aRot.length) > 0;
+  function keysOf(a) { return a.map(function (x) { return x.key; }); }
+  // 2026-10-31 連続する日で同じ字を出さない（決定的な日替わり回転・再帰なし）。苦手は繰り返すが連続しない：苦手が1つなら1日おき、複数なら窓を「半分幅」までにして巡回。
+  var hasOther = (focusActive.length + restActive.length) > 0;
   var mCap = hasOther ? Math.max(1, Math.round(n * 0.6)) : n;
-  var order = mRot.slice(0, mCap).concat(fRot).concat(aRot).concat(mRot.slice(mCap)).concat(sleepRot);
+  var mToday;
+  if (weakWrong.length === 0) mToday = [];
+  else if (weakWrong.length === 1) mToday = ((((day % 2) + 2) % 2) === 0) ? [weakWrong[0].key] : [];
+  else { var mSlots = Math.min(weakWrong.length, mCap); var q = Math.max(1, Math.min(mSlots, Math.floor(weakWrong.length / 2))); mToday = keysOf(kanjiRotWindow(weakWrong, q, day)); }
+  // 変化プール：集中字を復習字の中へ均等に挟み込む（今の単元も毎日のように出しつつ、全体を日替わりで巡回）。
+  var gap = focusActive.length ? Math.max(1, Math.round(restActive.length / focusActive.length)) : 1;
+  var varyPool = [], fi = 0, ri = 0;
+  while (fi < focusActive.length || ri < restActive.length) {
+    if (fi < focusActive.length) varyPool.push(focusActive[fi++]);
+    for (var _g = 0; _g < gap && ri < restActive.length; _g++) varyPool.push(restActive[ri++]);
+  }
+  var dayVary = keysOf(kanjiRotWindow(varyPool, Math.min(varyPool.length, n), day));
   var pickedK = {}, sel = [];
-  order.forEach(function (x) { if (sel.length < n && !pickedK[x.key]) { pickedK[x.key] = 1; sel.push(x); } });
-  var arr = sel.slice(0, n).map(function (x) { return { kanji: x.key, score: 0 }; });
+  var _take = function (keys) { for (var _i = 0; _i < keys.length && sel.length < n; _i++) { var k = keys[_i]; if (!pickedK[k]) { pickedK[k] = 1; sel.push(k); } } };
+  _take(mToday);
+  _take(dayVary);
+  if (sel.length < n) _take(keysOf(varyPool)); // 変化プールの残り（小さいプール用）
+  if (sel.length < n) _take(keysOf(kanjiRotWindow(focusSleep.concat(restSleep), n, day))); // お休み中（最後）
+  if (sel.length < n) _take(keysOf(weakWrong)); // 苦手の残り
+  return sel.slice(0, n);
+}
+// 2026-10-31 にがて漢字ノートの出題字＋語。選定は決定的で、連続する日で同じ字が出ない（kanjiWeakSelect）。
+function kanjiWeakList(data, chId, date, n) {
+  var ch = childById(chId); if (!ch) return [];
+  n = Math.max(0, n || 0); if (!n) return [];
+  var keys = kanjiWeakSelect(data, chId, date, n);
   var known = knownKanjiSet(data, chId, ch);
-  arr.forEach(function (it) { var w = pickWordForChar(ch, it.kanji, date, known); it.word = w.word; it.reading = w.reading; it.sentence = w.sentence; });
-  return arr;
+  return keys.map(function (c) { var w = pickWordForChar(ch, c, date, known); return { kanji: c, score: 0, word: w.word, reading: w.reading, sentence: w.sentence }; });
 }
 
 // ===== 例文の多空欄化（2026-09-05）: 既習の語を空欄にし、漢字ごとに出題 =====
@@ -762,9 +781,10 @@ function readKanjiQ(data, chId, date) {
   if (ids && ids.length && !staleFrozen) {
     var byId = {};
     list.forEach(function (k) { byId[k.id] = k; });
-    return ids.map(function (id) { return byId[id]; }).filter(function (k) { return k; });
+    var mapped = ids.map(function (id) { return byId[id]; }).filter(function (k) { return k; });
+    if (mapped.length) return mapped; // 2026-10-31 凍結IDが解決できないとき（空）は下の再構成へフォールバック＝採点画面の空白防止
   }
-  // 凍結が無い/古いときは freeze と同じ構成（集中メイン＋少し復習）で組み直す
+  // 凍結が無い/古い/解決不能のときは freeze と同じ構成（集中メイン＋少し復習）で組み直す
   return composeKanjiTest(data, chId, date);
 }
 // ===== 2026-06-06 ふりがな（学年別漢字表示）機能 =====
@@ -5113,20 +5133,23 @@ function KanjiTab(p) {
   var todayDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][TD] && data.todayChecks[ch.id][TD]["kanji_test"]);
   const [testState, setTestState] = useState(null);
   const [gradeDate, setGradeDate] = useState(function () {
-    var anyWeekday = null, candidate = null, pending = null;
+    var _tcMap = (data.todayChecks && data.todayChecks[ch.id]) || {};
+    // 2026-10-31 採点待ち（子が完了・未採点）は何日前でも最優先。最も古い日から採点できるように。
+    var _pend = Object.keys(_tcMap).filter(function (ds) { var t = _tcMap[ds]; return t && t["kanji_test"] && !t["kanji_graded"] && isKanjiTestDay(ds); }).sort();
+    if (_pend.length) return _pend[0];
+    var anyWeekday = null, candidate = null;
     for (var dd = 0; dd < 14; dd++) {
       var dt = new Date(NOW); dt.setDate(dt.getDate() - dd);
       var ds = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
       if (!isKanjiTestDay(ds)) continue; // 土日は漢字テストの対象外
       if (anyWeekday == null) anyWeekday = ds;
-      var tc = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds]) || null;
+      var tc = _tcMap[ds] || null;
       var graded = !!(tc && tc["kanji_graded"]);
       var done = !!(tc && tc["kanji_test"]);
       var hasQ = kanjiDailyQueue(effKanjiList(data, ch.id, ds), ds).length > 0;
-      if (pending == null && done && !graded) pending = ds; // 子が完了済み・未採点＝採点まちを最優先
       if (candidate == null && (hasQ || graded || done)) candidate = ds;
     }
-    return pending || candidate || anyWeekday || TD;
+    return candidate || anyWeekday || TD;
   });
   const [editId, setEditId] = useState(null);
   const [editReading, setEditReading] = useState("");
@@ -5255,18 +5278,28 @@ function KanjiTab(p) {
 
   var testableCount = active.filter(function (k) { return k.reading && k.reading.trim(); }).length;
   // 採点できる日の候補（直近7日で、出題できる語があるか、すでに採点済みの日）
+  // 2026-10-31 採点候補：①採点待ち（子が完了・未採点）は何日前でも必ず拾う ②直近14日は当日・復習・採点済みも。日付順に並べる。
   var gradeDays = [];
-  for (var _gd = 0; _gd < 14; _gd++) { // 2026-10-14 子のやり残し(14日)に合わせて採点も14日ぶん
-    var _dt = new Date(NOW); _dt.setDate(_dt.getDate() - _gd);
-    var _ds = _dt.getFullYear() + "-" + String(_dt.getMonth() + 1).padStart(2, "0") + "-" + String(_dt.getDate()).padStart(2, "0");
-    if (!isKanjiTestDay(_ds)) continue; // 土日は採点候補から除外
-    var _q = kanjiDailyQueue(effKanjiList(data, ch.id, _ds), _ds);
-    var _tc = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][_ds]) || null;
+  var _seenGd = {};
+  var _mkGdLabel = function (ds) {
+    var _p = ds.split("-"); var _d = new Date(+_p[0], +_p[1] - 1, +_p[2]);
+    var _td = new Date(NOW); _td.setHours(0, 0, 0, 0);
+    var _diff = Math.round((_td.getTime() - _d.getTime()) / 86400000);
+    return _diff === 0 ? "今日" : _diff === 1 ? "きのう" : (_d.getMonth() + 1) + "/" + _d.getDate();
+  };
+  var _addGd = function (ds) {
+    if (_seenGd[ds] || !isKanjiTestDay(ds)) return;
+    var _tc = (data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][ds]) || null;
     var _graded = !!(_tc && _tc["kanji_graded"]);
-    var _done = !!(_tc && _tc["kanji_test"]); // 子どもが完了済み
-    if (_q.length > 0 || _graded || _done) gradeDays.push({ date: _ds, label: _gd === 0 ? "今日" : _gd === 1 ? "きのう" : (_dt.getMonth() + 1) + "/" + _dt.getDate(), count: _q.length, graded: _graded, done: _done });
-  }
-  var selQueue = kanjiDailyQueue(effKanjiList(data, ch.id, gradeDate), gradeDate);
+    var _done = !!(_tc && _tc["kanji_test"]);
+    var _q = kanjiDailyQueue(effKanjiList(data, ch.id, ds), ds);
+    if (_q.length > 0 || _graded || _done) { _seenGd[ds] = 1; gradeDays.push({ date: ds, label: _mkGdLabel(ds), count: _q.length, graded: _graded, done: _done }); }
+  };
+  var _tcMap = (data.todayChecks && data.todayChecks[ch.id]) || {};
+  Object.keys(_tcMap).forEach(function (ds) { var t = _tcMap[ds]; if (t && t["kanji_test"] && !t["kanji_graded"]) _addGd(ds); }); // 採点待ちは全部
+  for (var _gd = 0; _gd < 14; _gd++) { var _dt = new Date(NOW); _dt.setDate(_dt.getDate() - _gd); _addGd(_dt.getFullYear() + "-" + String(_dt.getMonth() + 1).padStart(2, "0") + "-" + String(_dt.getDate()).padStart(2, "0")); }
+  gradeDays.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  var selQueue = readKanjiQ(data, ch.id, gradeDate); // 2026-10-31 間違えた漢字リストだけでなく実際の出題（SRS＝集中・既習含む）で採点可否を判定
   var selCount = selQueue.length;
   var selDone = !!(data.todayChecks && data.todayChecks[ch.id] && data.todayChecks[ch.id][gradeDate] && data.todayChecks[ch.id][gradeDate]["kanji_graded"]);
   var noReadingCount = active.filter(function (k) { return !k.reading || !k.reading.trim(); }).length;
@@ -5427,8 +5460,8 @@ function KanjiTab(p) {
       {isP && (
         <div style={S.card}>
           <div style={S.cardTitle}>🎯 漢字テスト</div>
-          {active.length === 0 ? (
-            <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 12 }}>間違えた漢字リストが空です</div>
+          {(!testState && gradeDays.length === 0 && selCount === 0 && !selDone) ? (
+            <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: 12 }}>今は採点・出題できる漢字テストがありません</div>
           ) : !testState ? (
             <div>
               {noReadingCount > 0 && (
