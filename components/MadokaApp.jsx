@@ -495,9 +495,9 @@ async function loadKanjiCorpus() {
     //   1000件ずつページングして全件読み込む（将来コーパスが増えても安全）。
     var c = {}; var page = 1000; var from = 0; var got = 0;
     while (true) {
-      var r = await supabase.from("kanji_words").select("grade,kanji,word,reading,reading_type,example,sort").order("grade").order("sort").range(from, from + page - 1);
+      var r = await supabase.from("kanji_words").select("grade,kanji,word,reading,reading_type,example,example_kanji,sort").order("grade").order("sort").range(from, from + page - 1);
       var rows = (r && r.data) || [];
-      rows.forEach(function (x) { if (!c[x.grade]) c[x.grade] = {}; if (!c[x.grade][x.kanji]) c[x.grade][x.kanji] = []; c[x.grade][x.kanji].push({ word: x.word, reading: x.reading, type: x.reading_type, example: x.example }); });
+      rows.forEach(function (x) { if (!c[x.grade]) c[x.grade] = {}; if (!c[x.grade][x.kanji]) c[x.grade][x.kanji] = []; c[x.grade][x.kanji].push({ word: x.word, reading: x.reading, type: x.reading_type, example: x.example, example_kanji: x.example_kanji }); });
       got += rows.length;
       if (rows.length < page) break;   // 最終ページ
       from += page;
@@ -616,6 +616,17 @@ function composeKanjiTest(data, chId, date) {
   return mistaken.concat(srsReview).slice(0, cap);
 }
 // ===== 苦手漢字ノート（2026-09-07）: 何度も間違えた字を毎日ノートに一行書く練習。テストとは別。=====
+// 2026-11-03 例文の表示形：漢字版(example_kanji＝答えの語は平仮名・まわりは漢字)の漢字がすべて既習(known)なら漢字版を使う。1字でも未習なら平仮名版(example)にフォールバック（未習の漢字は出さない）。
+function pickExampleSentence(w, char, known) {
+  var ek = (w && w.example_kanji || "").trim();
+  if (ek) {
+    var tgt = {}; wordKanji((w && w.word) || "").forEach(function (k) { tgt[k] = 1; }); if (char) tgt[char] = 1;
+    var ok = true;
+    for (var si = 0; si < ek.length; si++) { var cc = ek.charAt(si); if (isKanjiC(cc) && !tgt[cc] && !(known && known[cc])) { ok = false; break; } }
+    if (ok) return ek;
+  }
+  return (w && w.example) || "";
+}
 function pickWordForChar(ch, char, seed, known) {
   var grades = [srsCurGrade(ch)].concat(srsPriorGrades(ch));
   var all = [];
@@ -638,7 +649,7 @@ function pickWordForChar(ch, char, seed, known) {
   var order = [g_known2, g_knownN, g_okuri, g_any2, g_anyN, g_single];
   for (var oi = 0; oi < order.length; oi++) {
     var pool = order[oi];
-    if (pool.length) { var wpk = srsPick(pool, seed + ":" + char) || pool[0]; return { word: wpk.word, reading: wpk.reading || "", sentence: wpk.example || "" }; }
+    if (pool.length) { var wpk = srsPick(pool, seed + ":" + char) || pool[0]; return { word: wpk.word, reading: wpk.reading || "", sentence: pickExampleSentence(wpk, char, known) }; }
   }
   return { word: char, reading: "", sentence: "" };
 }
