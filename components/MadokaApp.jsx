@@ -2007,11 +2007,23 @@ function petGenki(data, chId) {
   while (dt < end && guard < 400) { dt.setDate(dt.getDate() + 1); guard++;
     var ds = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
     var dow = dt.getDay(); if (dow === 0 || dow === 6) continue; if (isRestDay(data, chId, ds)) continue;
-    if (petStudiedOn(data, chId, ds)) g = Math.min(100, g + 12); else g = Math.max(0, g - 15);
+    if (petStudiedOn(data, chId, ds)) g = Math.min(100, g + 14); else g = Math.max(0, g - 10);
   }
   return Math.round(g);
 }
-function petGenkiState(g) { return g >= 70 ? { label: "げんき", color: "#4CAF50" } : g >= 40 ? { label: "ふつう", color: "#FBC02D" } : g >= 20 ? { label: "げんきがない", color: "#FB8C00" } : { label: "びょうき", color: "#E53935" }; }
+// 2026-11-15 げんきを6段階に細分化（具合が悪くなる/回復の様子を細かく見せる）。stage 0(ダウン)〜5(とてもげんき)。
+function petHealthStage(g) { g = (g == null) ? 100 : g; if (g >= 85) return 5; if (g >= 65) return 4; if (g >= 50) return 3; if (g >= 35) return 2; if (g >= 20) return 1; return 0; }
+function petGenkiState(g) {
+  var st = petHealthStage(g);
+  return [
+    { stage: 0, label: "ダウン", color: "#E53935", emoji: "😵", msg: "ぐったり…。すこしでも べんきょうすると かいふくするよ！" },
+    { stage: 1, label: "ぐったり", color: "#F4511E", emoji: "🤒", msg: "びょうきみたい…。べんきょうと ごはんで げんきに なろう！" },
+    { stage: 2, label: "つかれぎみ", color: "#FB8C00", emoji: "😟", msg: "ちょっと つかれてる…。べんきょうすると げんき アップ！" },
+    { stage: 3, label: "ふつう", color: "#FBC02D", emoji: "😐", msg: "まあまあ げんき。あと すこしで げんきいっぱい！" },
+    { stage: 4, label: "げんき", color: "#7CB342", emoji: "🙂", msg: "げんき！ この ちょうしで がんばろう♪" },
+    { stage: 5, label: "とてもげんき", color: "#4CAF50", emoji: "💚", msg: "とっても げんき！ ありがとう♪" }
+  ][st];
+}
 function petLines(ctx) {
   var name = (ctx && ctx.name) || "ハム";
   var child = (ctx && ctx.child) ? (ctx.child + "ちゃん") : "きみ";
@@ -2019,7 +2031,8 @@ function petLines(ctx) {
   var seeds = (ctx && ctx.seeds) || 0;
   var hearts = (ctx && ctx.hearts) || 0;
   var genki = (ctx && ctx.genki != null) ? ctx.genki : 100;
-  if (genki < 40) { return [child + "、げんきが でないよ…", child + "、びょうき かも…。べんきょう いっしょに してくれる？", "はやく げんきに なりたいな…", child + "が べんきょうすると げんきが でるよ！", "うぅ…なでてくれて ありがとう"]; }
+  if (petHealthStage(genki) <= 1) { return [child + "、げんきが でないよ…", child + "、びょうき かも…。べんきょう いっしょに してくれる？", "はやく げんきに なりたいな…", child + "が べんきょうすると げんきが でるよ！", "うぅ…なでてくれて ありがとう"]; }
+  if (petHealthStage(genki) === 2) { return [child + "、ちょっと つかれちゃった…", "べんきょう すると げんき でてくるよ", child + "、きょうも がんばろ？", "ごはん たべたら ちょっと げんきに なったよ♪", "もうすこしで げんき いっぱいだね"]; }
   var a = [child + "、こんにちは！", name + "だよ、" + child + " よろしくね♪", child + "、きょうも べんきょう がんばろ！", child + "、えらいね！すごいね！", child + " だいすき♪", child + "、いっしょに おべんきょう しよ〜", "つぎは なにを おぼえるの？", child + "が がんばると げんきに なるよ！"];
   if (seeds > 0) { a.push("ひまわりのたね たべたいな♪"); a.push(child + "、たね あるの？ うれしい！"); }
   else { a.push("おなか いっぱい！ ありがとう♪"); a.push("まんぷくで しあわせ〜"); }
@@ -2031,8 +2044,11 @@ function HamsterBody(p) {
   var lvl = p.level || 1; var stage = petStage(lvl);
   var sc = [0.86, 0.94, 1.0, 1.06][stage];
   var items = p.items || []; var has = function (id) { return items.indexOf(id) >= 0; };
-  var sick = !!p.sick;
-  var bodyCol = sick ? "#EFDDBE" : "#F5CF97";
+  // 2026-11-15 健康を 0(ダウン)〜5(とてもげんき) の段階で見た目に反映（ほほ・目・口・冷却シート・キラキラが段階で変化）。
+  var h = (p.health != null) ? p.health : (p.sick ? 1 : 5);
+  var bodyCol = h >= 4 ? "#F5CF97" : h >= 3 ? "#F0DBB0" : "#EADEC4";
+  var cheekCol = h >= 4 ? "#FFAFC0" : h >= 3 ? "#FFC3B4" : h >= 2 ? "#E0C8BC" : "#A9B7C2";
+  var cheekOp = h >= 4 ? 0.6 : h >= 2 ? 0.5 : 0.45;
   return (
     <g transform={"translate(60 70) scale(" + sc + ") translate(-60 -70)"}>
       <path d="M60 15 q-7 -13 3 -13 q-3 7 6 9 z" fill="#E8B87A" />
@@ -2048,16 +2064,9 @@ function HamsterBody(p) {
       <ellipse cx="60" cy="97" rx="2.4" ry="4.2" fill="#BBAA96" />
       <ellipse cx="47" cy="116" rx="8" ry="5.5" fill={bodyCol} />
       <ellipse cx="73" cy="116" rx="8" ry="5.5" fill={bodyCol} />
-      <circle cx="32" cy="75" r="9.5" fill={sick ? "#A9B7C2" : "#FFAFC0"} opacity={sick ? 0.5 : 0.6} />
-      <circle cx="88" cy="75" r="9.5" fill={sick ? "#A9B7C2" : "#FFAFC0"} opacity={sick ? 0.5 : 0.6} />
-      {sick ? (
-        <g>
-          <path d="M39 66 q7 5 14 0" stroke="#3B2E28" strokeWidth="2.2" fill="none" strokeLinecap="round" />
-          <path d="M67 66 q7 5 14 0" stroke="#3B2E28" strokeWidth="2.2" fill="none" strokeLinecap="round" />
-          <rect x="49" y="46" width="22" height="8" rx="4" fill="#8FD0F4" stroke="#4FA8DC" strokeWidth="1" />
-          <path d="M93 60 q4 7 0 11 q-4 -4 0 -11 z" fill="#8FD0F4" />
-        </g>
-      ) : (
+      <circle cx="32" cy="75" r="9.5" fill={cheekCol} opacity={cheekOp} />
+      <circle cx="88" cy="75" r="9.5" fill={cheekCol} opacity={cheekOp} />
+      {h >= 4 ? (
         <g>
           <ellipse cx="46" cy="65" rx="7.5" ry="9.6" fill="#3B2E28" />
           <ellipse cx="74" cy="65" rx="7.5" ry="9.6" fill="#3B2E28" />
@@ -2066,15 +2075,53 @@ function HamsterBody(p) {
           <circle cx="48.6" cy="68.5" r="1.6" fill="#fff" opacity="0.85" />
           <circle cx="76.6" cy="68.5" r="1.6" fill="#fff" opacity="0.85" />
         </g>
+      ) : h === 3 ? (
+        <g>
+          <ellipse cx="46" cy="65" rx="7" ry="8.2" fill="#3B2E28" />
+          <ellipse cx="74" cy="65" rx="7" ry="8.2" fill="#3B2E28" />
+          <circle cx="43.8" cy="61.6" r="2.3" fill="#fff" />
+          <circle cx="71.8" cy="61.6" r="2.3" fill="#fff" />
+        </g>
+      ) : h === 2 ? (
+        <g>
+          <ellipse cx="46" cy="66.5" rx="7" ry="5.6" fill="#3B2E28" />
+          <ellipse cx="74" cy="66.5" rx="7" ry="5.6" fill="#3B2E28" />
+          <rect x="38" y="58" width="16" height="6.5" fill={bodyCol} />
+          <rect x="66" y="58" width="16" height="6.5" fill={bodyCol} />
+          <path d="M39 64.5 h14" stroke="#6B5A50" strokeWidth="1.4" strokeLinecap="round" />
+          <path d="M67 64.5 h14" stroke="#6B5A50" strokeWidth="1.4" strokeLinecap="round" />
+        </g>
+      ) : h === 1 ? (
+        <g>
+          <path d="M39 66 q7 5 14 0" stroke="#3B2E28" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+          <path d="M67 66 q7 5 14 0" stroke="#3B2E28" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+        </g>
+      ) : (
+        <g stroke="#3B2E28" strokeWidth="2" fill="none" strokeLinecap="round">
+          <path d="M42 61 l8 8 M50 61 l-8 8" />
+          <path d="M70 61 l8 8 M78 61 l-8 8" />
+        </g>
       )}
+      {h <= 1 ? <rect x="49" y="46" width="22" height="8" rx="4" fill="#8FD0F4" stroke="#4FA8DC" strokeWidth="1" /> : null}
+      {h <= 1 ? <path d="M93 60 q4 7 0 11 q-4 -4 0 -11 z" fill="#8FD0F4" /> : null}
       <path d="M57 74 h6 l-3 3.2 z" fill="#E9868F" />
-      {sick ? <path d="M56 80 q4 -3 8 0" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" /> : <g><path d="M60 77.5 q-3.6 4 -7 1" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" /><path d="M60 77.5 q3.6 4 7 1" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" /></g>}
+      {h >= 4 ? (
+        <g><path d="M60 77.5 q-3.6 4 -7 1" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" /><path d="M60 77.5 q3.6 4 7 1" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" /></g>
+      ) : h === 3 ? (
+        <path d="M55 78.5 q5 3 10 0" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+      ) : h === 2 ? (
+        <path d="M56 79 h8" stroke="#C98A80" strokeWidth="1.6" strokeLinecap="round" />
+      ) : h === 1 ? (
+        <path d="M56 80 q4 -3 8 0" stroke="#C98A80" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+      ) : (
+        <ellipse cx="60" cy="81" rx="3.4" ry="2.6" fill="#C56A6A" />
+      )}
       {has("glasses") ? <g fill="none" stroke="#5A4A42" strokeWidth="2"><circle cx="46" cy="65" r="11" /><circle cx="74" cy="65" r="11" /><path d="M57 65 h6" /></g> : null}
       {has("flower") ? <g><g fill="#FF8FB0"><circle cx="30" cy="17" r="3.4" /><circle cx="37" cy="17" r="3.4" /><circle cx="33.5" cy="12" r="3.4" /><circle cx="30.5" cy="22" r="3.4" /><circle cx="36.5" cy="22" r="3.4" /></g><circle cx="33.5" cy="17.5" r="2.6" fill="#FFD54F" /></g> : null}
       {has("ribbon") ? <g><path d="M50 40 L36 33 L36 49 Z" fill="#FF6F91" /><path d="M70 40 L84 33 L84 49 Z" fill="#FF6F91" /><circle cx="60" cy="41" r="5.5" fill="#F04E77" /></g> : null}
       {has("hat") ? <g><path d="M60 1 L77 26 L43 26 Z" fill="#7C6FF0" /><circle cx="60" cy="1" r="4" fill="#FFD54F" /></g> : null}
       {has("crown") ? <g><path d="M37 24 L45 7 L60 20 L75 7 L83 24 Z" fill="#FFD54F" stroke="#F4A81C" strokeWidth="1.5" strokeLinejoin="round" /><circle cx="60" cy="14" r="2.8" fill="#FF6F91" /></g> : null}
-      {p.happy && !sick ? <g fill="#FFD54F"><path d="M13 44 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2 z" /><path d="M105 34 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 z" /></g> : null}
+      {h >= 5 ? <g fill="#FFD54F"><path d="M13 44 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2 z" /><path d="M105 34 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 z" /></g> : null}
     </g>
   );
 }
@@ -2085,7 +2132,7 @@ function Hamster(p) {
   return (
     <svg viewBox="0 0 120 128" width={sz} height={sz} style={{ display: "block", overflow: "visible" }}>
       <ellipse cx="60" cy="121" rx={40 * sc} ry="6" fill="rgba(0,0,0,0.07)" />
-      {HamsterBody({ level: p.level, items: p.items, sick: p.sick, happy: p.happy })}
+      {HamsterBody({ level: p.level, items: p.items, sick: p.sick, happy: p.happy, health: p.health })}
     </svg>
   );
 }
@@ -2103,7 +2150,7 @@ function HamsterRoom(p) {
       {has("wheel") ? <g><g stroke="#AEB6C0" strokeWidth="3" fill="none"><circle cx="170" cy="96" r="20" /><path d="M170 76 V116 M150 96 H190 M156 82 L184 110 M184 82 L156 110" /></g><rect x="164" y="115" width="12" height="4" rx="2" fill="#AEB6C0" /></g> : null}
       {has("plant") ? <g><rect x="176" y="128" width="16" height="15" rx="2" fill="#D98E5A" /><path d="M184 128 q-10 -16 -4 -24 q7 7 4 24" fill="#77B255" /><path d="M184 128 q10 -14 3 -22 q-5 7 -3 22" fill="#5EA043" /></g> : null}
       {has("rug") ? <g><ellipse cx="100" cy="150" rx="54" ry="14" fill="#FFB6CE" /><ellipse cx="100" cy="150" rx="41" ry="9" fill="#FFD3E0" /></g> : null}
-      <g transform="translate(46 42) scale(0.9)">{HamsterBody({ level: p.level, items: items, sick: p.sick, happy: p.happy })}</g>
+      <g transform="translate(46 42) scale(0.9)">{HamsterBody({ level: p.level, items: items, sick: p.sick, happy: p.happy, health: p.health })}</g>
     </svg>
   );
 }
@@ -2123,7 +2170,7 @@ function PetTab(p) {
   var level = petLevel(exp);
   var genki = petGenki(data, ch.id);
   var gs = petGenkiState(genki);
-  var sick = genki < 40;
+  var sick = gs.stage <= 2;
   var T = petThresholds();
   var base = T[level - 1] || 0;
   var next = (T[level] != null) ? T[level] : base;
@@ -2141,9 +2188,14 @@ function PetTab(p) {
     d.pet[ch.id].fed = (d.pet[ch.id].fed || 0) + give;
     d.pet[ch.id].exp = (d.pet[ch.id].exp || 0) + give;
     d.pet[ch.id].hearts = (d.pet[ch.id].hearts || 0) + give;
+    // 2026-11-15 ごはん（ひまわりのたね）でも げんきが すこし回復（たね1こ＝+5、見てわかる回復）。学習が主役・ごはんは補助。
+    var curG = petGenki(d, ch.id);
+    var newG = Math.min(100, curG + give * 5);
+    d.pet[ch.id].genki = newG; d.pet[ch.id].genkiDate = TD;
     var after = petLevel(d.pet[ch.id].exp);
     save(d);
-    setSpeech(after > before ? ("🎉 レベル" + after + "に なったよ！ ありがとう！") : PET_EAT[Math.floor(Math.random() * PET_EAT.length)]);
+    var gained = newG - curG;
+    setSpeech(after > before ? ("🎉 レベル" + after + "に なったよ！ ありがとう！") : (gained > 0 ? ("もぐもぐ😋 げんきが +" + gained + "！ げんきに なってきた♪") : PET_EAT[Math.floor(Math.random() * PET_EAT.length)]));
   };
   var buyAcc = function (acc) {
     if (seeds < acc.cost || items.indexOf(acc.id) >= 0) return;
@@ -2174,7 +2226,7 @@ function PetTab(p) {
         )}
         <div style={{ fontSize: 11, color: "#BB7799" }}>Lv.{level}・{petStageName(level)}</div>
         <div style={{ maxWidth: 220, margin: "4px auto 0" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}><span style={{ color: gs.color, fontWeight: 800 }}>{sick ? "🤒 " : "💚 "}げんき：{gs.label}</span><span style={{ color: "#bbb" }}>{genki}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}><span style={{ color: gs.color, fontWeight: 800 }}>{gs.emoji} げんき：{gs.label}</span><span style={{ color: "#bbb" }}>{genki}</span></div>
           <div style={{ height: 8, background: "#eee", borderRadius: 4, overflow: "hidden" }}><div style={{ height: "100%", width: genki + "%", background: gs.color, transition: "width .4s" }} /></div>
         </div>
         <div style={{ position: "relative", maxWidth: 240, margin: "8px auto 0", minHeight: 44 }}>
@@ -2182,10 +2234,10 @@ function PetTab(p) {
           <div style={{ position: "absolute", left: "50%", bottom: -8, transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "9px solid #FFCC80" }} />
         </div>
         <div onClick={talk} style={{ display: "flex", justifyContent: "center", margin: "2px 0 0", cursor: "pointer" }} title="タッチしてね">
-          <HamsterRoom level={level} items={equip} sick={sick} width={280} />
+          <HamsterRoom level={level} items={equip} sick={sick} health={gs.stage} width={280} />
         </div>
         <div style={{ fontSize: 10, color: "#c9a", marginTop: -4 }}>🐹 タッチすると おはなしするよ</div>
-        {sick ? <div style={{ fontSize: 11, color: "#E53935", fontWeight: 700, marginTop: 6 }}>びょうきみたい…。べんきょうすると だんだん げんきに なるよ！</div> : null}
+        <div style={{ fontSize: 11, color: gs.color, fontWeight: 700, marginTop: 6 }}>{gs.msg}</div>
         <div style={{ maxWidth: 220, margin: "8px auto 0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#aaa" }}><span>Lv.{level}</span><span>つぎまで {toNext}</span></div>
           <div style={{ height: 8, background: "#F0E4D0", borderRadius: 4, overflow: "hidden" }}><div style={{ height: "100%", width: prog + "%", background: "#FB8C00", transition: "width .4s" }} /></div>
@@ -2237,7 +2289,7 @@ function PetTab(p) {
         <div><div style={{ fontSize: 18, fontWeight: 800, color: "#FB8C00" }}>{fed}</div><div style={{ fontSize: 10, color: "#999" }}>たべたたね</div></div>
         <div><div style={{ fontSize: 18, fontWeight: 800, color: "#7C6FF0" }}>{days}</div><div style={{ fontSize: 10, color: "#999" }}>いっしょの日</div></div>
       </div>
-      {isP ? <div style={{ fontSize: 10, color: "#bbb", textAlign: "center", marginTop: 4, lineHeight: 1.5 }}>※ひまわりのたねは「この機能をはじめてから」貯まります（最初は5こ）。以降は学習で1つずつ増えます。げんきは平日に学習すると回復・さぼると減少（土日・お休みは増減なし）。ごほうびポイントとは別会計です。</div> : null}
+      {isP ? <div style={{ fontSize: 10, color: "#bbb", textAlign: "center", marginTop: 4, lineHeight: 1.5 }}>※ひまわりのたねは「この機能をはじめてから」貯まります（最初は5こ）。以降は学習で1つずつ増えます。げんきは6段階（とてもげんき→げんき→ふつう→つかれぎみ→ぐったり→ダウン）で、平日に学習すると+14回復・さぼると-10減少（土日・お休みは増減なし）。ごはん（たね1こ）でもげんきが+5回復します。少しの学習でも見た目が少しずつ元気になります。ごほうびポイントとは別会計です。</div> : null}
     </div>
   );
 }
@@ -2460,10 +2512,10 @@ function HomeTab(p) {
     <div style={{ animation: "fadeIn .3s ease" }}>
       {isM && ch.id === "yuzuki" && (
         <div onClick={function () { setTab("pet"); }} style={{ ...S.card, display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "linear-gradient(135deg,#FFF3E0,#FFFDF8)" }}>
-          <Hamster level={petLevel((data.pet && data.pet[ch.id] && data.pet[ch.id].exp) || 0)} items={(data.pet && data.pet[ch.id] && data.pet[ch.id].equip) || []} sick={petGenki(data, ch.id) < 40} size={64} />
+          <Hamster level={petLevel((data.pet && data.pet[ch.id] && data.pet[ch.id].exp) || 0)} items={(data.pet && data.pet[ch.id] && data.pet[ch.id].equip) || []} health={petGenkiState(petGenki(data, ch.id)).stage} size={64} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: "#6D4C41" }}>{(data.pet && data.pet[ch.id] && data.pet[ch.id].name) || "ハムスター"}<span style={{ fontSize: 11, color: "#BB7799", marginLeft: 6 }}>Lv.{petLevel((data.pet && data.pet[ch.id] && data.pet[ch.id].exp) || 0)}</span></div>
-            <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}><span style={{ color: petGenkiState(petGenki(data, ch.id)).color }}>{petGenki(data, ch.id) < 40 ? "🤒 げんきがない…" : "💚 げんき"}</span><span style={{ color: "#FB8C00" }}> ・🌻 {petSeedsOf(data, ch.id)}こ ▶</span></div>
+            <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}><span style={{ color: petGenkiState(petGenki(data, ch.id)).color }}>{petGenkiState(petGenki(data, ch.id)).emoji} {petGenkiState(petGenki(data, ch.id)).label}</span><span style={{ color: "#FB8C00" }}> ・🌻 {petSeedsOf(data, ch.id)}こ ▶</span></div>
           </div>
         </div>
       )}
