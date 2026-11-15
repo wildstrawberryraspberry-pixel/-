@@ -1049,6 +1049,7 @@ function WeekPlanCard(p) {
   const [noteEdit, setNoteEdit] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteEditDate, setNoteEditDate] = useState(TD);
+  const [confirmDismiss, setConfirmDismiss] = useState(false); // 2026-11-15 「やり残し全部消す」は誤操作防止のため2段階確認
   var weekKey = weekStartKey(TD);
   var wbs = (data.workbooks && data.workbooks[ch.id]) || [];
   var wp = (data.weekPlan && data.weekPlan[ch.id]) || null;
@@ -1740,8 +1741,11 @@ function WeekPlanCard(p) {
               </div>
             )}
             {isP && noteMissed.length >= 2 && (
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-                <button onClick={dismissAllMissedNotes} style={{ ...S.smBtn, background: "#FBE9E7", color: "#D84315", fontSize: 11 }} title="溜まったやり残しをまとめて消す（消化せず）">🗑 やり残し{noteMissed.length}日ぶんを全部消す</button>
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                {confirmDismiss && <span style={{ fontSize: 11, color: "#D84315", fontWeight: 700 }}>本当に{noteMissed.length}日ぶん全部消す？（やらずに消えます）</span>}
+                {confirmDismiss && <button onClick={function () { dismissAllMissedNotes(); setConfirmDismiss(false); }} style={{ ...S.smBtn, background: "#E53935", color: "#fff", fontSize: 11 }}>はい、消す</button>}
+                {confirmDismiss && <button onClick={function () { setConfirmDismiss(false); }} style={{ ...S.smBtn, background: "#eee", color: "#666", fontSize: 11 }}>やめる</button>}
+                {!confirmDismiss && <button onClick={function () { setConfirmDismiss(true); }} style={{ ...S.smBtn, background: "#FBE9E7", color: "#D84315", fontSize: 11 }} title="溜まったやり残しをまとめて消す（消化せず）">🗑 やり残し{noteMissed.length}日ぶんを全部消す</button>}
               </div>
             )}
             {noteMissed.map(function (mn) {
