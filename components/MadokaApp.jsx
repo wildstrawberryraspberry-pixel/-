@@ -343,7 +343,7 @@ function MainView(p) {
   if (isM) navs.push({ id: "points", icon: "🌟", l: "ポイント" });
   if (isM) navs.push({ id: "review", icon: "📊", l: "ふりかえり" });
   if (isM) navs.push({ id: "tests", icon: "📝", l: "テスト" });
-  if (isM && (ch.id === "eishi" || ch.id === "yuzuki")) navs.push({ id: "kanji", icon: "✏️", l: "漢字" });
+  if (isM && (ch.id === "eishi" || ch.id === "yuzuki" || ch.id === "daigo")) navs.push({ id: "kanji", icon: "✏️", l: "漢字" });
   if (isM) navs.push({ id: "rewards", icon: "🎁", l: "ごほうび" });
   if (isM && ch.id === "yuzuki") navs.push({ id: "pet", icon: "🐹", l: "ハムスター" });
   return (
@@ -389,7 +389,7 @@ function MainView(p) {
         {tab === "points" && isM && <PointsTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "review" && isM && <ReviewTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "tests" && isM && <TestsTab ch={ch} data={data} save={save} isP={isP} />}
-        {tab === "kanji" && isM && (ch.id === "eishi" || ch.id === "yuzuki") && <KanjiTab ch={ch} data={data} save={save} isP={isP} />}
+        {tab === "kanji" && isM && (ch.id === "eishi" || ch.id === "yuzuki" || ch.id === "daigo") && <KanjiTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "rewards" && isM && <RewardsTab ch={ch} data={data} save={save} isP={isP} />}
         {tab === "pet" && isM && ch.id === "yuzuki" && <PetTab ch={ch} data={data} save={save} isP={isP} />}
       </main>
